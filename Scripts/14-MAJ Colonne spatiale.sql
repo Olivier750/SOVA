@@ -1,0 +1,1 @@
+UPDATE DEFAUTS SET geospatiale = ST_PointFromText('POINT('||LONGITUDE||' '||LATITUDE||')',4326)

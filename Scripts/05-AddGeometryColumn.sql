@@ -1,0 +1,1 @@
+SELECT AddGeometryColumn('lignes', 'geospatiale', 4326, 'LINESTRING', 'XY')

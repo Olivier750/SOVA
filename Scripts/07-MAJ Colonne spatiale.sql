@@ -1,0 +1,1 @@
+UPDATE lignes SET geospatiale = ST_LineFromText('LINESTRING('||COORDONNEES||')',4326)
