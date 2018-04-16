@@ -68,9 +68,11 @@ VITESSE
 GROUPE_UIC
    - Fréquence de passage des trains
    - Exclusion des 13 lignes GROUPE_UIC = ( '.',  'U50' et 'V5')
-- Regroupement (1-4, 5-6, 7-9)
+   - Regroupement (1-4 forte densité, 5-6 densité moyenne, 7-9 faible densité)
 
 RAYON_COURBE
+	- courbe si >0 et <= 1200
+	- droit si r>1200 ou 0 ou NR
 
 ID_TYPE_CLASSEMENT (variable a expliquer)
    - Exclusion des modalités autre que :
@@ -80,19 +82,20 @@ ID_TYPE_CLASSEMENT (variable a expliquer)
         - X1 : Provoque des fissurations et demande des mesures de sécurité, Risque de rupture faible
         - X2 : Provoque des fissurations et demande des mesures de sécurité, Risque de rupture important
         - S : Provoque des fissurations et demande des mesures de sécurité, Risque de rupture imminent
-   - NB : Décision de garder à part les modalités non renseignées de la variable ID_TYPE_CLASSEMENT pour leur appliquer le modèle et voir dans quelle catégorie de problème elles sont représentée. 
-
+   PS : proposition de modéle : On regroupe E NR O en 0 et X1 X2 et S en 1 pour une premeire analyse
+   
 ID_TYPE_EMPLACEMENT
    - Emplacement du rail
-      - Remplacement de la modalité NR par ciel ouvert
+   - Remplacement de la modalité NR par ciel ouvert
 
 ID_TYPE_DEFAUT
-   - suppression de cette variable (elle a trop de valeurs différentes, et est redondante avec le type de classement)
+   - 4 codes (1270,2270,2271,2272) corespondent a des fissurations (1/4 de la base). On exclut la corrosion.
+   - Donner une definition des 4 type de defaut dans le filtre de la base
 
 Annee_Decouverte
    - Année de découverte du défaut
-      - Exclusion des année de pose < 1900
-      - Année de pose non renseignée, 1452 lignes. ==> on supprime les lignes
+      - Exclusion de l'année de pose < 1900
+      - Année de pose non renseignée, 113 lignes. ==> on supprime les lignes
 
 PKM (nouvelle colonne)
    - Transformation du champs PK_Defaut en une valeur numérique en mètre
@@ -101,19 +104,9 @@ Age du rail (nouvelle colonne)
    - différence entre année de pose et année de découverte
    - Forçage des années de pose à 1980 pour les 6 cas où l'âge est négatif, puis re-calcul de l'âge.
 
-Tranche d'âge- AGE (nouvelle colonne)
-
-Tranche de vitesse - VITESSE (nouvelle colonne)
-
-Forme de la rail - PROFIL_RAIL (nouvelle colonne)
-
-Densité de circulation - GROUPE_UIC (nouvelle colonne)
-
-Tranche d'année de pose- ANNEE_POSE (nouvelle colonne)
-
-Rayon courbure - RAYON_COURBE (nouvelle colonne)
+Tranche d'âge- AGE : 10 tranches (les deciles)
 
 
 Doublons :
-   - suppression des doublons et conservation de l'ID_DEFAUT minimum
+   - on les garde car plusieurs defaut sur meme pk
 
