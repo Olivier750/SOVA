@@ -41,7 +41,7 @@ Installation Spatialite
 Compréhension et nettoyage des données
 
 Ligne_num
-   - Numéro de la ligne de train
+   - Numéro de la ligne
    
 NOMVOIE
    - Nom de la voie
@@ -51,7 +51,7 @@ ID_DEFAUT
    
 PK_DEFAUT
    - Point kilométrique du défaut
-      - suppression de toutes les lignes > 118+0000, on ne s'interesse qu'a l'ile de france
+      - suppression de toutes les lignes > 118+0000, on ne s'interesse qu'a l'ile de france (nouvelle base avec bon perimetre)
    
 PROFIL_RAIL
    - Profil des rails
@@ -59,13 +59,16 @@ PROFIL_RAIL
 
 ANNEE_POSE
    - Année de pose du rail
-      - on supprime les lignes ou l'année de pose est nulle
+      - on garde pour l'instant les lignes ou l'année de pose est NR (133 cas) et on verra en fonction des methodes stat
+      - on supprime l'année de pose renseignée inferieure à 1900
 
 VITESSE
+	- création d'une variable en 5 tranches pour l'instant (0-50, 50-100, 100-160, 160-200, >200) 
 
 GROUPE_UIC
    - Fréquence de passage des trains
    - Exclusion des 13 lignes GROUPE_UIC = ( '.',  'U50' et 'V5')
+- Regroupement (1-4, 5-6, 7-9)
 
 RAYON_COURBE
 
