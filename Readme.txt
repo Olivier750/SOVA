@@ -51,12 +51,15 @@ ID_DEFAUT
    
 PK_DEFAUT
    - Point kilométrique du défaut
+      - suppression de toutes les lignes > 118+0000, on ne s'interesse qu'a l'ile de france
    
 PROFIL_RAIL
    - Profil des rails
       - regroupe en 5 catégories : Autre, 46-E2, 50-E6, 55-E1, 60-E1
 
 ANNEE_POSE
+   - Année de pose du rail
+      - on supprime les lignes ou l'année de pose est nulle
 
 VITESSE
 
