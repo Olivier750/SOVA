@@ -1,1 +1,0 @@
-SELECT CreateSpatialIndex('lignes','geospatiale')
