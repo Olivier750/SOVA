@@ -1,9 +1,9 @@
-----
--title: "SOVA - Generation de la BDD Spatiale"
--author: "SOVA"
--date: "29 mars 2018"
--output: html_document
-----
+---
+title: "SOVA"
+author: "SOVA"
+date: "29 mars 2018"
+output: html_document
+---
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
@@ -23,9 +23,9 @@ if (length(setdiff(packages, rownames(installed.packages()))) > 0) {
 }
 ```
 
-## Initialisation du repertoire de travail
+## Initialisation du répertoire de travail
 ```{r warning=FALSE}
-setwd("D:/SOVA")
+setwd("C:/Users/D75275/Documents/OneDrive - EDF/Projet SOVA")
 ```
 
 ## Suppression des variables
@@ -36,35 +36,33 @@ rm(list = ls())
 ## Chargement des librairies
 * readr
 * RSQLite
-
 ```{r echo=FALSE, warning=FALSE}
 library("readr")
 library("RSQLite")
 ```
 
-
-## Creation de la base de donnees
+## Création de la base de données
 * Chargement du driver SQLite
-* Creation de la connection a la base de donnees sovadb.sqlite
+* Création de la connection à la base de données sovadb.sqlite
 * Activation des extensions de SQLite
-* Spatialisation de la base de donnees
+* Spatialisation de la base de données
 
 ```{r echo=FALSE, warning=FALSE}
-sqldrv <- RSQLite::dbDriver("SQLite")
+sqldrv <- dbDriver("SQLite")
 
-con <- RSQLite::dbConnect(sqldrv, dbname = "Database\\SOVA_db.sqlite", loadable.extensions = TRUE)
+con <- dbConnect(sqldrv, dbname = "Database\\SOVA_db.sqlite", loadable.extensions = TRUE)
 
-RSQLite::dbSendQuery(conn = con, "SELECT load_extension('mod_spatialite')")
+dbSendQuery(conn = con, "SELECT load_extension('mod_spatialite')")
 
-RSQLite::dbSendQuery(conn = con, "SELECT InitSpatialMetaData()")
+dbSendQuery(conn = con, "SELECT InitSpatialMetaData()")
 ```
 
 ***
-#Chargement des donnees
+#Chargement des données
 
-## Chargements des coordonnees GPS des voies
-Test de l'existence de la table *lignes_tmp* (si elle existe, on la detruit et on la recree)
-La table *lignes_tmp* contient les donnees GPS brutes.
+## Chargements des coordonnées GPS des voies
+Test de l'existence de la table *lignes_tmp* (si elle existe, on la détruit et on la recrée)
+La table *lignes_tmp* contient les données GPS brutes.
 
 ```{r echo=FALSE, warning=FALSE}
 if (RSQLite::dbExistsTable(conn = con, "lignes_tmp") == TRUE)
@@ -72,8 +70,8 @@ if (RSQLite::dbExistsTable(conn = con, "lignes_tmp") == TRUE)
   RSQLite::dbRemoveTable(conn = con, "lignes_tmp")
 }
 
-# Creation d'une table temporaire (lignes_tmp) qui va recevoir les donnees GPS
-RSQLite::dbSendQuery(conn = con, statement = readr::read_file('Scripts\\01-Create Table lignes_tmp.sql'))
+# Creation d'une table temporaire qui va recevoir les données GPS
+RSQLite::dbSendQuery(conn = con, statement = read_file('Scripts\\01-Create Table lignes_tmp.sql'))
 ```
 
 
@@ -81,50 +79,68 @@ Chargement du fichier basegeometrie.rds dans la table lignes_tmp
 ```{r echo=FALSE, warning=FALSE}
 MyFile <- paste0(getwd(),"/Datasources/basegeometrie.rds")
 A <- readRDS(MyFile)
-RSQLite::dbWriteTable(conn = con, name="lignes_tmp", A, row.names=FALSE, append=TRUE)
+dbWriteTable(conn = con, name="lignes_tmp", A, row.names=FALSE, append=TRUE)
 
 rm(A)
 rm(MyFile)
 ```
 
-Ajout de colonnes, et nettoyage des donnees
+Suppression des données au dela de 118 kilomètres (hors ile de france)
 ```{r echo=FALSE, warning=FALSE}
-#Ajout d'une colonne LIGNE2 qui contiendra la colonne LIGNE nettoye
-RSQLite::dbSendQuery(conn = con, statement = readr::read_file('Scripts\\02a-Ajouter une colonne.sql'))
-RSQLite::dbSendQuery(conn = con, statement = readr::read_file('Scripts\\02b-Ajouter une colonne.sql'))
-
-#Mise a jour de la colonne LIGNE2 qui est la concat�nation de Ligne et Nom_Voie
-RSQLite::dbSendQuery(conn = con, statement = readr::read_file('Scripts\\03-MAJ colonne.sql'))
+dbSendQuery(conn = con, statement = read_file('Scripts\\02-Suppression données hors IdF.sql'))
 ```
 
 
-Test de l'existence de la table *lignes* (si elle existe, on la detruit et on la recree)
-la table *lignes* contient les coordonnees GPS nettoyees et spatialisees
+
+
+Ajout de 2 colonnes (LIGNE2 et LIGNE_VOIE)
 ```{r echo=FALSE, warning=FALSE}
-if (RSQLite::dbExistsTable(conn = con, "lignes") == TRUE)
+#Ajout d'une colonne LIGNE2 qui contiendra la colonne LIGNE nettoyé
+dbSendQuery(conn = con, statement = read_file('Scripts\\03-Ajouter une colonne.sql'))
+dbSendQuery(conn = con, statement = read_file('Scripts\\04-Ajouter une colonne.sql'))
+```
+
+Mise à jour des colonnes (LIGNE2 et LIGNE_VOIE)
+```{r echo=FALSE, warning=FALSE}
+#Mise a jour de la colonne LIGNE2
+dbSendQuery(conn = con, statement = read_file('Scripts\\05-MAJ colonne.sql'))
+```
+
+
+Test de l'existence de la table *lignes* (si elle existe, on la détruit et on la recrée)
+la table *lignes* contient les coordonnées GPS nettoyées et spatialisées
+```{r echo=FALSE, warning=FALSE}
+if (dbExistsTable(conn = con, "lignes") == TRUE)
 {
-  RSQLite::dbRemoveTable(conn = con, "lignes")
+  dbRemoveTable(conn = con, "lignes")
 }
 
-#Creation d'une table qui va recevoir les donnees GPS
-RSQLite::dbSendQuery(conn = con, statement = readr::read_file('Scripts\\04-Create Table lignes.sql'))
+#Creation d'une table qui va recevoir les données GPS
+dbSendQuery(conn = con, statement = read_file('Scripts\\06-Create Table lignes.sql'))
+```
 
+Spatialisation de la table *lignes*
+-ajout d'une colonne geometrique
+-insertion des données
+-mise à jour de la colonne spatiale
+-création d'un index spatiale
+```{r echo=FALSE, warning=FALSE}
 #creation de la colonne spatiale
-RSQLite::dbSendQuery(conn = con, statement = readr::read_file('Scripts\\05-AddGeometryColumn.sql'))
+dbSendQuery(conn = con, statement = read_file('Scripts\\07-AddGeometryColumn.sql'))
 
-#Insertion des donnees dans la table
-RSQLite::dbSendQuery(conn = con, statement = readr::read_file('Scripts\\06-Insert Into.sql'))
+#Insertion des données dans la table
+dbSendQuery(conn = con, statement = read_file('Scripts\\08-Insert Into.sql'))
 
 #Mise a jour de la colonne geospatiale
-RSQLite::dbSendQuery(conn = con, statement = readr::read_file('Scripts\\07-MAJ Colonne spatiale.sql'))
+dbSendQuery(conn = con, statement = read_file('Scripts\\09-MAJ Colonne spatiale.sql'))
 
 #Creation d'un index spatial
-RSQLite::dbSendQuery(conn = con, statement = readr::read_file('Scripts\\08-CreateSpatialIndex.sql'))
+dbSendQuery(conn = con, statement = read_file('Scripts\\10-CreateSpatialIndex.sql'))
 ```
 
 
-## Chargement des donnees de reparation
-boucle sur le repertoire *Datasources* pour charger tous les fichiers csv dans une table temporaire
+## Chargement des données de réparation
+boucle sur le répertoire *Datasources* pour charger tous les fichiers csv dans une table temporaire
 ```{r echo=FALSE, warning=FALSE}
 #listing de tous les fichiers csv se trouvant dans le repertoire Datasources
 ListFile <- list.files(path = "Datasources\\", pattern = "*.csv")
@@ -137,12 +153,12 @@ for (i in 1:length(ListFile))
   MaTable <- substr(ListFile[[i]],1,10)
   
   #Si la table existe, on la supprime avant
-  if (RSQLite::dbExistsTable(con, MaTable) == TRUE)
+  if (dbExistsTable(con, MaTable) == TRUE)
   {
-    RSQLite::dbRemoveTable(con, MaTable)
+    dbRemoveTable(con, MaTable)
   }
   
-  RSQLite::dbWriteTable(conn = con, 
+  dbWriteTable(conn = con, 
                name = MaTable, 
                value = MonFichier, 
                row.names = FALSE)
@@ -154,68 +170,93 @@ rm(i)
 rm(ListFile)
 ```
 
-creation d'une table *DEFAUTS* qui va contenir les defauts des voies
+création d'une table *DEFAUTS* qui va contenir les défauts des voies
 ```{r echo=FALSE, warning=FALSE}
 #Creation d'une table DEFAUTS
-#test de l'existence de la table lignes, si elle existe, on la detruit et on la recree
-if (RSQLite::dbExistsTable(conn = con, "DEFAUTS") == TRUE)
+#test de l'existence de la table lignes, si elle existe, on la détruit et on la recrée
+if (dbExistsTable(conn = con, "DEFAUTS") == TRUE)
 {
-  RSQLite::dbRemoveTable(conn = con, "DEFAUTS")
+  dbRemoveTable(conn = con, "DEFAUTS")
 }
 
-RSQLite::dbSendQuery(conn = con, statement = readr::read_file('Scripts\\09-Create Table Defauts.sql'))
-
-
-#Insertion dans une table DEFAUTS (en eliminant les doublons)
-RSQLite::dbSendQuery(conn = con, statement = readr::read_file('Scripts\\10-Insert Into Defauts.sql'))
-
+dbSendQuery(conn = con, statement = read_file('Scripts\\11-Create Table Defauts.sql'))
 ```
 
+Insertion dans la table defaut des données
+```{r echo=FALSE, warning=FALSE}
+#Insertion dans une table DEFAUTS (en éliminant les doublons)
+dbSendQuery(conn = con, statement = read_file('Scripts\\12-Insert Into Defauts.sql'))
+```
+Nettoyage des données
+- suppression des données hors ile de france
+- suppression des années de pose < 1900
+- suppression des données
+- suppression des données hors fissuration (type classement)
+- suppression des données hors fissuration (type defaut)
+```{r echo=FALSE, warning=FALSE}
+dbSendQuery(conn = con, statement = read_file('Scripts\\13-Delete Ile de France.sql'))
+dbSendQuery(conn = con, statement = read_file('Scripts\\14-Delete Annee Pose.sql'))
+dbSendQuery(conn = con, statement = read_file('Scripts\\15-Delete Groupe UIC.sql'))
+dbSendQuery(conn = con, statement = read_file('Scripts\\16-Delete ID_TYPE_CLASSEMENT.sql'))
+dbSendQuery(conn = con, statement = read_file('Scripts\\17-Delete ID_TYPE_DEFAUT.sql'))
+```
+
+
+Creation d'index
 ```{r echo=FALSE, warning=FALSE}
 #Creation d'index
-RSQLite::dbSendQuery(conn = con, statement = readr::read_file('Scripts\\11a-Create Index.sql'))
-RSQLite::dbSendQuery(conn = con, statement = readr::read_file('Scripts\\11b-Create Index.sql'))
+dbSendQuery(conn = con, statement = read_file('Scripts\\18-Creation Index idx_ligne_pk.sql'))
+dbSendQuery(conn = con, statement = read_file('Scripts\\19-Creation Index idx_ligne_metre.sql'))
 ```
-
+Récupération des coordonnees GPS des defauts
 ```{r echo=FALSE, warning=FALSE}
-#Mise a jour des colonnes Longitude et Latitude
-RSQLite::dbSendQuery(conn = con, statement = readr::read_file('Scripts\\12-MAJ Longitude Latitude.sql'))
+#Mise à jour des colonnes Longitude et Latitude
+dbSendQuery(conn = con, statement = read_file('Scripts\\20-MAJ Longitude Latitude.sql'))
 ```
 
 
 
-creation d'une colonne spatiale, et insertion des points geometrique des defauts
+création d'une colonne spatiale
 ```{r echo=FALSE, warning=FALSE}
 #creation de la colonne spatiale
-RSQLite::dbSendQuery(conn = con, statement = readr::read_file('Scripts\\13-AddGeometryColumn.sql'))
+dbSendQuery(conn = con, statement = read_file('Scripts\\21-AddGeometryColumn.sql'))
 ```
 
-
+Insertion des points géometrique des defauts
 ```{r echo=FALSE, warning=FALSE}
 #Mise a jour de la colonne geospatiale
-RSQLite::dbSendQuery(conn = con, statement = readr::read_file('Scripts\\14-MAJ Colonne spatiale.sql'))
+dbSendQuery(conn = con, statement = read_file('Scripts\\22-MAJ Colonne spatiale.sql'))
 ```
 
 ```{r echo=FALSE, warning=FALSE}
 #Suppression des tables temporaire
-RSQLite::dbSendQuery(conn = con, statement = readr::read_file('Scripts\\15a-Drop table.sql'))
-RSQLite::dbSendQuery(conn = con, statement = readr::read_file('Scripts\\15b-Drop table.sql'))
+dbSendQuery(conn = con, statement = read_file('Scripts\\23-Drop table.sql'))
+dbSendQuery(conn = con, statement = read_file('Scripts\\24-Drop table.sql'))
 ```
 
 ```{r echo=FALSE, warning=FALSE}
 #Creation d'une vue
-RSQLite::dbSendQuery(conn = con, statement = readr::read_file('Scripts\\16-Create View DEFAUTS_WK.sql'))
+#dbSendQuery(conn = con, statement = read_file('Scripts\\25-Create View DEFAUTS_WK.sql'))
 ```
+
+
+
+
 
 
 ### Reduction base
 ```{r echo=FALSE, warning=FALSE}
-RSQLite::dbSendQuery(conn = con, "VACUUM")
+dbSendQuery(conn = con, "VACUUM")
+```
+
+```{r echo=FALSE, warning=FALSE}
+base_sncf <- dbGetQuery(conn = con, statement = "select * from DEFAUTS")
 ```
 
 ##fermeture de la connexion et nettoyage des variables
 ```{r echo=FALSE, warning=FALSE}
-RSQLite::dbDisconnect(con)  
+dbDisconnect(con)  
 rm(con)
+rm(rs)
 rm(sqldrv)
 ```
