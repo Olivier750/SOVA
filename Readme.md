@@ -67,7 +67,12 @@ PK_DEFAUT
    
 PROFIL_RAIL
    - Profil des rails
-      - regroupe en 5 catégories : Autre, 46-E2, 50-E6, 55-E1, 60-E1
+      - regroupe en 5 catégories : 
+      	- Autre
+	- 46-E2
+	- 50-E6
+	- 55-E1
+	- 60-E1
 
 ANNEE_POSE
    - Année de pose du rail
@@ -75,7 +80,12 @@ ANNEE_POSE
       - on supprime l'année de pose renseignée inferieure à 1900
 
 VITESSE
-	- création d'une variable en 5 tranches pour l'instant (0-50, 50-100, 100-160, 160-200, >200) 
+	- création d'une variable en 5 tranches pour l'instant
+		- 0-50
+		- 50-100
+		- 100-160
+		- 160-200
+		- >200
 
 GROUPE_UIC
    - Fréquence de passage des trains
