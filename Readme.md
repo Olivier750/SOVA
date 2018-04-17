@@ -15,7 +15,7 @@
 
 
 
------------------------------------------------------------------------------
+
 ## Installation Spatialite
 
 -Téléchargement de la version 32b de SQL Lite
@@ -37,9 +37,20 @@
 		Fermez toutes les fenêtres restantes en cliquant sur OK.
 
 -Demarrer RStudio en maintenant la touche CTRL enfoncée pour choisir la version 32b
------------------------------------------------------------------------------
+
 
 ## Compréhension et nettoyage des données
+
+Structure du fichier source
+
+| LIGNE_NUM  | NOMVOIE | ID_DEFAUT | PK_DEFAUT | PROFIL_RAIL | ANNEE_POSE | VITESSE | GROUPE_UIC | RAYON_COURBE | ID_TYPE_CLASSEMENT | ID_TYPE_EMPLACEMENT | ID_TYPE_DEFAUT | ANNEE_DECOUVERTE |
+| ---  | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| Numéro de la ligne  | Nom de la voie | Id du défaut | Point kilométique | Pofil du rail | Année de pose du rail | Vitesse maximum autorisé sur le rail | Fréquence d'uilisation du rail | Rayon de courbure du rail | Id du défaut trouvé (variable a expliquer) | Emplcement du rail | Id du type de défaut | Annee de découverte du défaut |
+
+
+
+
+
 
 Ligne_num
    - Numéro de la ligne
