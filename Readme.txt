@@ -1,6 +1,7 @@
-PROJET SOVA
+# PROJET SOVA
 
-Structure du projet
+
+## Structure du projet
 - Dossier Database
      Contient la base de données SQLite avec l'extension Spatialite
 - Dossier Scripts
@@ -15,7 +16,7 @@ Structure du projet
 
 
 -----------------------------------------------------------------------------
-Installation Spatialite
+## Installation Spatialite
 
 -Téléchargement de la version 32b de SQL Lite
      https://www.sqlite.org/2018/sqlite-dll-win32-x86-3220000.zip
@@ -38,7 +39,7 @@ Installation Spatialite
 -Demarrer RStudio en maintenant la touche CTRL enfoncée pour choisir la version 32b
 -----------------------------------------------------------------------------
 
-Compréhension et nettoyage des données
+## Compréhension et nettoyage des données
 
 Ligne_num
    - Numéro de la ligne
