@@ -126,7 +126,7 @@ MalClasse_both
 26% mal classés : idem
 
 
-En ajoutant des interactions entre age et annee de pose :
+En ajoutant des interactions entre age & annee de pose et forme de la rail & vitesse :
 ```{r}
 modele2 <- glm(FISSURATION ~ AGE + VITESSE + ANNEE_POSE +FORME_RAIL +DENSITE_CIRCUL+ Profil + AGE:ANNEE_POSE + FORME_RAIL:VITESSE, data=dataset, family="binomial")
 summary(modele2)
@@ -176,7 +176,7 @@ MalClasse_both2 <- sum(validation$FISSURATION != validation$FISSURATION_prev2_bo
 MalClasse_both2
 ```
 idem
-
+=> On gagne un peu en ajoutant les interactions.
 
 
 
