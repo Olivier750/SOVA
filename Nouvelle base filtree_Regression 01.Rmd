@@ -1,0 +1,202 @@
+---
+output:
+  html_document: default
+  pdf_document: default
+---
+
+
+
+# REGRESSION BINAIRE : FISSURATION AVEC RISQUE DE RUPTURE vs NON RUPTURE 
+
+
+
+INSTALLATION DES PACKAGES :
+```{r}
+install.packages("scales");library("scales")
+install.packages("ggplot2");library("ggplot2")
+install.packages("ggthemes");library("ggthemes")
+install.packages("dplyr");library("dplyr")
+install.packages("randomForest");library("randomForest")
+
+install.packages("caret");library(caret)
+# install.packages("caret", dependencies=c("Depends", "Suggests")) # si probleme 
+```
+
+LA VARIABLE A EXPLIQUER   
+```{r}
+table(base_travail$ID_TYPE_CLASSEMENT,useNA="always")
+
+base_travail$FISSURATION[base_travail$ID_TYPE_CLASSEMENT=="E" | base_travail$ID_TYPE_CLASSEMENT=="NR" |  base_travail$ID_TYPE_CLASSEMENT=="O" ] <- 0
+base_travail$FISSURATION[base_travail$ID_TYPE_CLASSEMENT=="X1" | base_travail$ID_TYPE_CLASSEMENT=="X2" | base_travail$ID_TYPE_CLASSEMENT=="S"] <- 1
+
+table(base_travail$FISSURATION,useNA="always")
+table(base_travail$FISSURATION,base_travail$ID_TYPE_CLASSEMENT,useNA="always")
+```
+
+
+Création des bases de construction et validation à 70/30 :
+```{r}
+# Les indices de la base de construction :
+validation_index <- createDataPartition(base_travail$ID_TYPE_CLASSEMENT, p=0.70, list=FALSE)
+# La base de valisation à 30% :
+validation <- base_travail[-validation_index,]
+# La base de construction à 70% :
+dataset <- base_travail[validation_index,]
+```
+ 
+Vérif des proportions de ID_TYPE_CLASSEMENT : 
+```{r}
+prop.table(table(dataset$ID_TYPE_CLASSEMENT))
+prop.table(table(validation$ID_TYPE_CLASSEMENT))
+```
+ 
+```{r}
+str(dataset)
+```
+```{r}
+summary(dataset)
+```
+ 
+ 
+ 
+ 
+
+###################################################################################
+#######                           MODELISATION                     ################
+###################################################################################
+
+```{r}
+names(dataset)
+```
+La base pour la modelisation :
+```{r}
+modele <- glm(FISSURATION ~ AGE + VITESSE + ANNEE_POSE +FORME_RAIL +DENSITE_CIRCUL+ Profil +PLACE, data=dataset, family="binomial")
+summary(modele)
+```
+Sans la variable PLACE
+```{r}
+modele <- glm(FISSURATION ~ AGE + VITESSE + ANNEE_POSE +FORME_RAIL +DENSITE_CIRCUL+ Profil, data=dataset, family="binomial")
+summary(modele)
+```
+Selection du modele backward :
+A chaque etape on enleve la var dont le retrait mene a la plus grande diminution aic
+```{r}
+modele1_back <- step (modele, direction="backward")
+modele1_back
+```
+Prediction sur validation :
+```{r}
+validation$FISSURATION_proba_back <- predict(modele1_back, newdata=validation, type="response")
+validation$FISSURATION_prev_back <- as.numeric(validation$FISSURATION_proba_back>0.5)
+table(validation$FISSURATION,validation$FISSURATION_prev_back)
+MalClasse <- sum(validation$FISSURATION != validation$FISSURATION_prev_back)/nrow(validation)
+MalClasse
+```
+26% mal classés
+
+Selection du modele forward :
+A chaque etape on ajoute la var dont l'ajout mene a la plus petite diminution aic
+```{r}
+modele1_for <- step (modele, direction="forward")
+modele1_for
+```
+Prediction sur validation :
+```{r}
+validation$FISSURATION_proba_for <- predict(modele1_for, newdata=validation, type="response")
+validation$FISSURATION_prev_for <- as.numeric(validation$FISSURATION_proba_for>0.5)
+table(validation$FISSURATION,validation$FISSURATION_prev_for)
+MalClasse_for <- sum(validation$FISSURATION != validation$FISSURATION_prev_for)/nrow(validation)
+MalClasse_for
+```
+26% mal classés : idem
+
+Selection du modele both :
+```{r}
+modele1_both <- step (modele, direction="both")
+modele1_both
+```
+Prediction sur validation :
+```{r}
+validation$FISSURATION_proba_both <- predict(modele1_both, newdata=validation, type="response")
+validation$FISSURATION_prev_both <- as.numeric(validation$FISSURATION_proba_both>0.5)
+table(validation$FISSURATION,validation$FISSURATION_prev_both)
+MalClasse_both <- sum(validation$FISSURATION != validation$FISSURATION_prev_both)/nrow(validation)
+MalClasse_both
+```
+26% mal classés : idem
+
+
+En ajoutant des interactions entre age et annee de pose :
+```{r}
+modele2 <- glm(FISSURATION ~ AGE + VITESSE + ANNEE_POSE +FORME_RAIL +DENSITE_CIRCUL+ Profil + AGE:ANNEE_POSE + FORME_RAIL:VITESSE, data=dataset, family="binomial")
+summary(modele2)
+```
+Selection du modele backward :
+A chaque etape on enleve la var qui dont le retrait mene a la plus grande diminution aic
+```{r}
+modele2_back <- step (modele2, direction="backward")
+modele2_back
+```
+Prediction sur validation :
+```{r}
+validation$FISSURATION_proba2_back <- predict(modele2_back, newdata=validation, type="response")
+validation$FISSURATION_prev2_back <- as.numeric(validation$FISSURATION_proba2_back>0.5)
+table(validation$FISSURATION,validation$FISSURATION_prev2_back)
+MalClasse <- sum(validation$FISSURATION != validation$FISSURATION_prev2_back)/nrow(validation)
+MalClasse
+```
+25.7% de mal classé
+
+Verif avec la forward :
+```{r}
+modele2_for <- step (modele2, direction="forward")
+modele2_for
+```
+Prediction sur validation :
+```{r}
+validation$FISSURATION_proba2_for <- predict(modele2_for, newdata=validation, type="response")
+validation$FISSURATION_prev2_for <- as.numeric(validation$FISSURATION_proba2_for>0.5)
+table(validation$FISSURATION,validation$FISSURATION_prev2_for)
+MalClasse_for <- sum(validation$FISSURATION != validation$FISSURATION_prev2_for)/nrow(validation)
+MalClasse_for
+```
+idem
+Et avec la both :
+
+```{r}
+modele2_both <- step (modele2, direction="both")
+modele2_both
+```
+Prediction sur validation :
+```{r}
+validation$FISSURATION_proba2_both <- predict(modele2_both, newdata=validation, type="response")
+validation$FISSURATION_prev2_both <- as.numeric(validation$FISSURATION_proba2_both>0.5)
+table(validation$FISSURATION,validation$FISSURATION_prev2_both)
+MalClasse_both2 <- sum(validation$FISSURATION != validation$FISSURATION_prev2_both)/nrow(validation)
+MalClasse_both2
+```
+idem
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
