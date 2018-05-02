@@ -10,19 +10,20 @@ output:
 
 
 
-INSTALLATION DES PACKAGES :
+## 1. Installation des packages :
 ```{r}
-install.packages("scales");library("scales")
-install.packages("ggplot2");library("ggplot2")
-install.packages("ggthemes");library("ggthemes")
-install.packages("dplyr");library("dplyr")
-install.packages("randomForest");library("randomForest")
+#install.packages("scales");library("scales")
+#install.packages("ggplot2");library("ggplot2")
+#install.packages("ggthemes");library("ggthemes")
+#install.packages("dplyr");library("dplyr")
+#install.packages("randomForest");library("randomForest")
 
-install.packages("caret");library(caret)
+#install.packages("caret")
+library(caret)
 # install.packages("caret", dependencies=c("Depends", "Suggests")) # si probleme 
 ```
 
-LA VARIABLE A EXPLIQUER   
+## 2. La variable à expliquer : 
 ```{r}
 table(base_travail$ID_TYPE_CLASSEMENT,useNA="always")
 
@@ -34,6 +35,7 @@ table(base_travail$FISSURATION,base_travail$ID_TYPE_CLASSEMENT,useNA="always")
 ```
 
 
+## 3. Modele de regression sans interaction avec Methode de Validation par echantillon train-test :
 Création des bases de construction et validation à 70/30 :
 ```{r}
 # Les indices de la base de construction :
@@ -52,19 +54,9 @@ prop.table(table(validation$ID_TYPE_CLASSEMENT))
  
 ```{r}
 str(dataset)
-```
-```{r}
 summary(dataset)
 ```
- 
- 
- 
- 
-
-###################################################################################
-#######                           MODELISATION                     ################
-###################################################################################
-
+  
 ```{r}
 names(dataset)
 ```
@@ -73,7 +65,7 @@ La base pour la modelisation :
 modele <- glm(FISSURATION ~ AGE + VITESSE + ANNEE_POSE +FORME_RAIL +DENSITE_CIRCUL+ Profil +PLACE, data=dataset, family="binomial")
 summary(modele)
 ```
-Sans la variable PLACE
+Sans la variable PLACE car n'apporte rien au modéle :
 ```{r}
 modele <- glm(FISSURATION ~ AGE + VITESSE + ANNEE_POSE +FORME_RAIL +DENSITE_CIRCUL+ Profil, data=dataset, family="binomial")
 summary(modele)
@@ -126,7 +118,8 @@ MalClasse_both
 26% mal classés : idem
 
 
-En ajoutant des interactions entre age & annee de pose et forme de la rail & vitesse :
+## 4. Modele de regression avec interactions, avec Methode de Validation par echantillon train-test :
+En ajoutant des interactions age / annee de pose et Forme rail / densite de circulation :
 ```{r}
 modele2 <- glm(FISSURATION ~ AGE + VITESSE + ANNEE_POSE +FORME_RAIL +DENSITE_CIRCUL+ Profil + AGE:ANNEE_POSE + FORME_RAIL:VITESSE, data=dataset, family="binomial")
 summary(modele2)
@@ -179,17 +172,72 @@ idem
 => On gagne un peu en ajoutant les interactions.
 
 
+## 5. Modele de regression sans interactions, avec Methode des k-fold (3, 5, 10) :
+
+Le modele logistique avec interaction :
+```{r}
+set.seed(1)
+# Construction du modele sur la base complete :
+modele3 <- glm(FISSURATION ~ AGE + VITESSE + ANNEE_POSE +FORME_RAIL +DENSITE_CIRCUL+ Profil , data=base_travail, family="binomial")
+summary(modele3)
+```
+
+Creation d'un vecteur avec 3 valeurs nulles pour les 3 resultats des erreurs des kfold avec k= 3, 5 et 10 :
+```{r}
+cv.error <- rep(0,3)
+
+# Pour faire de la cross-validation, on a besoin de la librairie 'boot'
+#install.packages("boot")
+library(boot)
+```
+
+Enregistrement des resultats de chaque echantillon de validation :
+```{r}
+# Pour 3-fold 5-fold et 10-fold  :
+cv.error[1] <- cv.glm(base_travail, modele3, K=3)$delta[1]
+cv.error[2] <- cv.glm(base_travail, modele3, K=5)$delta[1]
+cv.error[3] <- cv.glm(base_travail, modele3, K=10)$delta[1]
+cv.error
+# On retranche la moyenne des erreurs à 1 pour obtenir la moyenne des biens classés :
+1-mean(cv.error) 
+```
+Donc 82,23% de bien classés par les k-fold sans interactions
+Voyons si c'est mieux avec interactions :
 
 
 
+## 6. Modele de regression avec interactions, avec Methode des k-fold (3, 5, 10) :
+
+Le modele logistique avec interaction :
+```{r}
+set.seed(2)
+# Construction du modele sur la base complete :
+modele4 <- glm(FISSURATION ~ AGE + VITESSE + ANNEE_POSE +FORME_RAIL +DENSITE_CIRCUL+ Profil + AGE:ANNEE_POSE + FORME_RAIL:VITESSE, data=base_travail, family="binomial")
+summary(modele4)
+```
 
 
+Creation d'un vecteur avec 3 valeurs nulles pour les 3 resultats des erreurs des kfold avec k= 3, 5 et 10 :
+```{r}
+cv.error <- rep(0,3)
 
+# Pour faire de la cross-validation, on a besoin de la librairie 'boot'
+#install.packages("boot")
+library(boot)
+```
 
+Enregistrement des resultats de chaque echantillon de validation :
+```{r}
+# Pour 3-fold 5-fold et 10-fold  :
+cv.error[1] <- cv.glm(base_travail, modele4, K=3)$delta[1]
+cv.error[2] <- cv.glm(base_travail, modele4, K=5)$delta[1]
+cv.error[3] <- cv.glm(base_travail, modele4, K=10)$delta[1]
+cv.error
+# On retranche la moyenne des erreurs à 1 pour obtenir la moyenne des biens classés :
+1-mean(cv.error) 
+```
 
-
-
-
+Donc 82,25% de bien classés par les k-fold avec interactions => meilleur modele logistique.
 
 
 
