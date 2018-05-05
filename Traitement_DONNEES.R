@@ -89,6 +89,21 @@ TAB_bis<-TAB_bis[-which(TAB_bis$AGE>150),]
 par(mfrow=c(1,1))
 boxplot(TAB_bis$AGE~TAB_bis$TRAIN, main=" AGE",ylab="Age del'installation",xlab="Type de Défaut",col="orange")
 
+#ajouter la variable des O/1
+TAB_bis$Class_Binaire<-0
+TAB_bis$Class_Binaire[which(TAB_bis$TYPE_CLASSEMENT=="S"|
+     TAB_bis$TYPE_CLASSEMENT=="X1"|TAB_bis$TYPE_CLASSEMENT=="X2")]<-1
+
+
+## diviser l'�chantillon TEST et l'apprentissage
+set.seed(1444)
+
+sample_taille = 0.60 * nrow( TAB_bis)
+IND<-sample(seq_len( nrow ( TAB_bis) ), size = sample_taille)
+
+TAB_ECH<-TAB_bis[IND,]
+TAB_TEST<-TAB_bis[-IND,]
+
 
 ## Déclarer le tabeleau d'étude
 
@@ -102,4 +117,9 @@ MAT<-matrix(table(TAB_bis$TYPE_CLASSEMENT),nrow = 1,ncol=6)
 rownames(MAT)="Freq"
 colnames(MAT)=c("E","NR","O","S","X1","X2")
 
+write.csv2(TAB_bis, "E:/Others/Formation Data Science/Projet/Datasources/TAB_bis.csv",row.names = FALSE)
+write.csv2(TAB_ECH, "E:/Others/Formation Data Science/Projet/Datasources/TAB_ECH.csv",row.names = FALSE)
+write.csv2(TAB_TEST, "E:/Others/Formation Data Science/Projet/Datasources/TAB_TEST.csv",row.names = FALSE)
 
+
+  
