@@ -1,0 +1,241 @@
+---
+title: 'Finalisation de la base de travail'
+output:
+  rmarkdown::html_document:
+    theme: cerulean
+    number_sections: no
+    toc: yes
+    toc_depth: 5
+    toc_float: true
+---
+
+# 1. Import de la base de travail et ajout annee de pose 
+
+Import de la derniere base :
+```{r}
+TAB_bis <- read.table("TAB_bis.csv",sep=";",header=T)
+names(TAB_bis)
+```
+=> 11767 obs et 16 variables
+
+Ajout de la variable annee de pose :
+```{r}
+DEF_PN_BIS <- read.table("DEF_PN_BIS.csv",sep=";",header=T)
+DEF_PN_TER <- DEF_PN_BIS[,c(3,6)]
+BASE_TRAVAIL <- merge(TAB_bis,DEF_PN_TER,by="ID_DEFAUT",all.x = TRUE)
+names(BASE_TRAVAIL)
+```
+Inspection de la base :
+```{r}
+str(BASE_TRAVAIL)
+summary(BASE_TRAVAIL)
+```
+
+# 2. Verification et Gestion des NA :
+
+```{r}
+# Class_Binaire et TYPE_CLASSEMENT
+table(BASE_TRAVAIL$Class_Binaire, BASE_TRAVAIL$TYPE_CLASSEMENT, useNA="always")
+# TYPE_RAYON_COURBE
+table(BASE_TRAVAIL$TYPE_RAYON_COURBE, useNA="always")
+
+# ANNEE_POSE
+table(BASE_TRAVAIL$ANNEE_POSE, useNA="always") # 24 NA : On les supprime
+BASE_TRAVAIL <- BASE_TRAVAIL[complete.cases(BASE_TRAVAIL$ANNEE_POSE),]
+table(BASE_TRAVAIL$ANNEE_POSE, useNA="always") 
+# Création de tranches :
+BASE_TRAVAIL$TR_ANNEE_POSE <- "Apres 2000"
+BASE_TRAVAIL$TR_ANNEE_POSE[BASE_TRAVAIL$ANNEE_POSE<=2000] <- "]1990;2000]"
+BASE_TRAVAIL$TR_ANNEE_POSE[BASE_TRAVAIL$ANNEE_POSE<=1990] <- "]1980;1990]"
+BASE_TRAVAIL$TR_ANNEE_POSE[BASE_TRAVAIL$ANNEE_POSE<=1980] <- "]1970;1980]"
+BASE_TRAVAIL$TR_ANNEE_POSE[BASE_TRAVAIL$ANNEE_POSE<=1970] <- "Avant 1970"
+# puis on retransforme en facteur :
+BASE_TRAVAIL$TR_ANNEE_POSE<-factor(BASE_TRAVAIL$TR_ANNEE_POSE)
+table(BASE_TRAVAIL$TR_ANNEE_POSE, useNA="always")
+BASE_TRAVAIL$TR_ANNEE_POSE<-relevel(BASE_TRAVAIL$TR_ANNEE_POSE,ref="Avant 1970")
+table(BASE_TRAVAIL$TR_ANNEE_POSE, useNA="always")
+
+# AGE et AGE_BIS : 
+table(BASE_TRAVAIL$AGE_bis, useNA="always") 
+table(BASE_TRAVAIL$AGE, useNA="always") 
+table(BASE_TRAVAIL$AGE_bis , BASE_TRAVAIL$AGE , useNA="always") 
+# incoherence => on relance le code :
+BASE_TRAVAIL$AGE_bis<-cut(BASE_TRAVAIL$AGE,breaks = c(0,10,20,30,40,50,60,70,80,90,200))
+table(BASE_TRAVAIL$AGE_bis, useNA="always") # il reste les 60 age=0 à NA
+# Puis on modifie 0 et (0,10] en [0,10]. Mais comme c'est un facteur il faut d'abord le transformer en caracteres :
+BASE_TRAVAIL$AGE_bis <- as.character( BASE_TRAVAIL$AGE_bis)
+str(BASE_TRAVAIL)
+BASE_TRAVAIL$AGE_bis[is.na(BASE_TRAVAIL$AGE_bis)]   <- "[0,10]"
+BASE_TRAVAIL$AGE_bis[BASE_TRAVAIL$AGE_bis=="(0,10]"]<-"[0,10]"
+table(BASE_TRAVAIL$AGE_bis, useNA="always") 
+# puis on retransforme en facteur :
+BASE_TRAVAIL$AGE_bis<-factor(BASE_TRAVAIL$AGE_bis)
+BASE_TRAVAIL$AGE_bis<-relevel(BASE_TRAVAIL$AGE_bis,ref="[0,10]")
+table(BASE_TRAVAIL$AGE_bis, useNA="always") 
+
+# VITESSE et VITESSE_bis :
+table(BASE_TRAVAIL$VITESSE_bis, useNA="always") 
+table(BASE_TRAVAIL$VITESSE, useNA="always") 
+table(BASE_TRAVAIL$VITESSE_bis , BASE_TRAVAIL$VITESSE , useNA="always") 
+# On met la categorie (-10,0] qui correspond à 15 vitesse=0 dans (0,50]. Mais comme c'est un facteur il faut d'abord le transformer en caracteres :
+BASE_TRAVAIL$VITESSE_bis <- as.character( BASE_TRAVAIL$VITESSE_bis)
+str(BASE_TRAVAIL)
+BASE_TRAVAIL$VITESSE_bis[BASE_TRAVAIL$VITESSE_bis=="(-10,0]"]<-"[0,50]"
+BASE_TRAVAIL$VITESSE_bis[BASE_TRAVAIL$VITESSE_bis=="(0,50]"]<-"[0,50]"
+table(BASE_TRAVAIL$VITESSE_bis, useNA="always") 
+# puis on retransforme en facteur et on range les valeurs :
+BASE_TRAVAIL$VITESSE_bis<-factor(BASE_TRAVAIL$VITESSE_bis)
+BASE_TRAVAIL$VITESSE_bis<-factor(BASE_TRAVAIL$VITESSE_bis,c("[0,50]","(50,100]","(100,160]","(160,200]","(200,400]"))      
+table(BASE_TRAVAIL$VITESSE_bis, useNA="always")
+
+# UIC: codage des modalités pour comprehension :
+str(BASE_TRAVAIL)
+table(BASE_TRAVAIL$UIC, useNA="always")
+BASE_TRAVAIL$UIC <- as.character( BASE_TRAVAIL$UIC)
+str(BASE_TRAVAIL)
+BASE_TRAVAIL$UIC[BASE_TRAVAIL$UIC=="G2_4"]<-"Forte Densite"
+BASE_TRAVAIL$UIC[BASE_TRAVAIL$UIC=="G5_6"]<-"Moyenne Densite"
+BASE_TRAVAIL$UIC[BASE_TRAVAIL$UIC=="G7_9"]<-"Faible Densite"
+# puis on retransforme en facteur et on range les valeurs :
+BASE_TRAVAIL$UIC<-factor(BASE_TRAVAIL$UIC)
+BASE_TRAVAIL$UIC<-factor(BASE_TRAVAIL$UIC,c("Faible Densite","Moyenne Densite","Forte Densite")) 
+table(BASE_TRAVAIL$UIC, useNA="always")
+```
+
+
+Variable qualitative TRAIN et PROFIL à part : Traitement des NA par analyse factorielle
+```{r}
+table(BASE_TRAVAIL$TRAIN, useNA="always")  # 26 NA
+table(BASE_TRAVAIL$Profil, useNA="always") # 187 NA
+```
+
+# 3. Analyse factorielle ACM
+
+```{r}
+names(BASE_TRAVAIL)
+```
+La base pour l'analyse factorielle :
+```{r}
+BASE_TRAVAIL_mca <- subset(BASE_TRAVAIL, select=c(TYPE_CLASSEMENT, TYPE_RAYON_COURBE, TR_ANNEE_POSE, AGE_bis, VITESSE_bis, UIC, Profil, TRAIN))
+names(BASE_TRAVAIL_mca)
+```
+Analyse factorielle avec TYPE_CLASSEMENT en supplementaire :
+```{r}
+# install.packages("FactoMineR")
+library(FactoMineR)
+mca<-MCA(BASE_TRAVAIL_mca, quali.sup = 1)
+```
+```{r}
+summary(mca,ncp=2)
+```
+```{r}
+plot(mca,shadow=TRUE,invisible=c("ind"),cex=0.7,title="Modalites les mieux representée",selectMod="cos2 10")
+```
+```{r}
+plotellipses(mca,keepvar=c("TRAIN","Profil"),cex=0.8)
+plotellipses(mca,keepvar=c("TRAIN","Profil"),cex=0.9, axes=3:4)
+plotellipses(mca,keepvar=c("TRAIN","Profil"),cex=0.9, axes=4:5)
+```
+
+```{r}
+plot(mca,invisible=c("ind"),cex=0.7,title="Modalites", axes=3:4)
+plot(mca,invisible=c("ind"),cex=0.7,title="Modalites", axes=4:5)
+```
+# 4. Analyse factorielle AFM
+
+```{r}
+names(BASE_TRAVAIL)
+```
+La base pour l'analyse factorielle :
+```{r}
+BASE_TRAVAIL_afm <- subset(BASE_TRAVAIL, select=c(TYPE_CLASSEMENT, ANNEE_POSE, AGE, VITESSE, UIC, Profil, TRAIN,TYPE_RAYON_COURBE))
+names(BASE_TRAVAIL_afm)
+```
+Analyse factorielle avec TYPE_CLASSEMENT en supplementaire :
+```{r}
+#install.packages("FactoMineR")
+library(FactoMineR)
+afm<-MFA(BASE_TRAVAIL_afm, group=c(1,2,1,4), type=c("n",rep("s",2),"n"), num.group.sup=1, name.group=c("Classement","anciennete","vitesse","car.technique"))
+```
+```{r}
+summary(afm)
+```
+```{r}
+plot(afm,invisible="ind",shadow=TRUE,cex=0.6)
+```
+```{r}
+dimdesc(afm)
+```
+# 5. Gestion des NA sur Profil et TRAIN suite à Anafac :
+
+Le premier plan de l'ACM represente 20% de l'info, ce qui est peu pour conclure.
+Le premier plan de l'AFM represente 43% de l'info, ce qui est mieux pour l'interpretation.
+
+On voit que, dans les deux cas, et même en regardant les axes 3 et 4 :
+- La modalité NA de la variable Profil est proche de la modalité "50-E6"
+- La modalité NA de la variable TRAIN est proche de la modalité "Autre"
+
+Nous remplaçons donc ces NA :
+
+```{r}
+# TRAIN
+table(BASE_TRAVAIL$TRAIN, useNA="always")  # 26 NA
+BASE_TRAVAIL$TRAIN <- as.character( BASE_TRAVAIL$TRAIN)
+str(BASE_TRAVAIL)
+BASE_TRAVAIL$TRAIN[is.na(BASE_TRAVAIL$TRAIN)]   <- "Autre"
+table(BASE_TRAVAIL$TRAIN, useNA="always") 
+BASE_TRAVAIL$TRAIN<-factor(BASE_TRAVAIL$TRAIN)
+str(BASE_TRAVAIL)
+
+# Profil
+table(BASE_TRAVAIL$Profil, useNA="always") # 187 NA
+BASE_TRAVAIL$Profil <- as.character( BASE_TRAVAIL$Profil)
+str(BASE_TRAVAIL)
+BASE_TRAVAIL$Profil[is.na(BASE_TRAVAIL$Profil)]   <- "50-E6"
+table(BASE_TRAVAIL$Profil, useNA="always") 
+BASE_TRAVAIL$Profil<-factor(BASE_TRAVAIL$Profil)
+str(BASE_TRAVAIL)
+```
+
+# 6. Base de travail totale / de Construction / de Test :
+
+```{r}
+table(BASE_TRAVAIL$TYPE_CLASSEMENT, useNA="always") 
+
+set.seed(1444) # on fixe la graine aléatoire pour la reproductibilité
+train <- sample(1:nrow(BASE_TRAVAIL),2*nrow(BASE_TRAVAIL)/3) # on selectionne 2/3 des lignes
+test  <- (-train)
+BASE_TRAVAIL_TRAIN <- BASE_TRAVAIL[train,]
+BASE_TRAVAIL_TEST  <- BASE_TRAVAIL[test,]
+
+table(BASE_TRAVAIL$TYPE_CLASSEMENT, useNA="always") 
+table(BASE_TRAVAIL_TRAIN$TYPE_CLASSEMENT, useNA="always") 
+table(BASE_TRAVAIL_TEST$TYPE_CLASSEMENT, useNA="always") 
+
+round(prop.table(table(BASE_TRAVAIL$TYPE_CLASSEMENT))*100,digits=2)
+round(prop.table(table(BASE_TRAVAIL_TRAIN$TYPE_CLASSEMENT))*100,digits=2)
+round(prop.table(table(BASE_TRAVAIL_TEST$TYPE_CLASSEMENT))*100,digits=2)
+```
+```{r}
+write.csv2(BASE_TRAVAIL, file="BASE_TRAVAIL.csv")
+write.csv2(BASE_TRAVAIL_TRAIN, file="BASE_TRAVAIL_TRAIN.csv")
+write.csv2(BASE_TRAVAIL_TEST, file="BASE_TRAVAIL_TEST.csv")
+```
+
+Les variables pour la modélisation :
+
+TYPE_CLASSEMENT
+Class_Binaire
+TYPE_RAYON_COURBE
+ANNEE_POSE
+TR_ANNEE_POSE
+AGE_bis 
+AGE
+VITESSE_bis
+VITESSE
+UIC
+TRAIN
+Profil
+
+
+
