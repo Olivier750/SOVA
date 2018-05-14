@@ -12,7 +12,6 @@ dashboardPage(
   #################################################"
   dashboardHeader(
     
-    
   ), # Fin dashboardHeader
   
   
@@ -22,7 +21,7 @@ dashboardPage(
   dashboardSidebar(
     sidebarMenu(
       menuItem("Carte", tabName = "CartoDefautRail", icon = icon("map"))
-    ) # Fin sidebarMenu
+      ) # Fin sidebarMenu
   ), # Fin dashboardSidebar
    
   
@@ -31,49 +30,43 @@ dashboardPage(
   #################################################"
   dashboardBody(
     tabItems(
-      
       tabItem(tabName = "CartoDefautRail",
               h2("Carte des défauts (Réseau Nord Ile-de-France)"),
+              #1ere Ligne
               fluidRow(
                 box(width=4,
-                  title = "La voie",
-                  status = "info",
-                  solidHeader = TRUE,
-                  collapsible = TRUE,
-                  "Choisissez la voie", br(), "à afficher sur la carte",
-                  uiOutput("SelectionLignes"),
-                  
-                  
-                  checkboxGroupInput(inputId = "TypeDefaut",label = NULL,inline = TRUE,
-                                     choices = c(E = "E",
-                                                 NR = "NR",
-                                                 O = "O",
-                                                 S = "S",
-                                                 X1 = "X1",
-                                                 X2 = "X2"),
-                                     selected = c("E", "NR", "O", "S", "X1", "X2")
-                  )
-                  
-                  
-                  ),
-                
-                
+                    title = "La voie",
+                    status = "info",
+                    solidHeader = TRUE,
+                    collapsible = TRUE,
+                    "Choisissez la voie", br(), "à afficher sur la carte",
+                    uiOutput("SelectionLignes"),
+                    checkboxGroupInput(inputId = "TypeDefaut",label = NULL,inline = TRUE,
+                                       choices = c(NR = "NR",
+                                                   E = "E",
+                                                   O = "O",
+                                                   X1 = "X1",
+                                                   X2 = "X2",
+                                                   S = "S"),
+                                       selected = c("NR", "E", "O", "X1", "X2", "S")
+                                       )
+                    ),
                 box(width=8,
                     status = "info",
                     solidHeader = TRUE,
-                    uiOutput("iboxE"),
                     uiOutput("iboxNR"),
+                    uiOutput("iboxE"),
                     uiOutput("iboxO"),
-                    uiOutput("iboxS"),
                     uiOutput("iboxX1"),
-                    uiOutput("iboxX2")
-                 )
-
+                    uiOutput("iboxX2"),
+                    uiOutput("iboxS")
+                    )
                 ),
+              #2eme Ligne
               fluidRow(
                 leafletOutput("CarteLigne", width = "100%")
                 )
               )
       )# Fin tabItems
-  )# Fin dashboardBody
+    )# Fin dashboardBody
 )#fin dashboardPage
