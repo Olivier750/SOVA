@@ -1,0 +1,161 @@
+---
+output:
+  html_document: default
+  pdf_document: default
+---
+
+# REGRESSION MULTINOMIALE : TYPE DE FISSURATION X1 X2 et pas de fissuration 
+# SANS LES INTERACTIONS
+
+## 1. Installation des packages et Creation des bases d'etude :
+
+```{r}
+#install.packages("nnet")
+library(nnet)
+
+BASE_Multi_TRAIN <- read.table("BASE_Multi_TRAIN.csv",sep=";",header=T)
+BASE_Multi_TEST  <- read.table("BASE_Multi_TEST.csv",sep=";",header=T)
+```
+
+Création des 10 folds sur TRAIN avec repartition homogéne des modalités 0 et 1
+```{r}
+# separation des reponses :
+X<-BASE_Multi_TRAIN ;rownames(X)<-NULL
+X_O <-X[which(X$TYPE_CLASSEMENT=="O"),] ;rownames(X_O)<-NULL
+X_1 <-X[which(X$TYPE_CLASSEMENT=="X1"),];rownames(X_1)<-NULL
+X_2 <-X[which(X$TYPE_CLASSEMENT=="X2"),];rownames(X_2)<-NULL
+
+# creation fonction qui recupere 1/10 de la base aleatoirement : 
+CROSS<-function(X){
+  set.seed(1444)
+  ID<-sample(1:nrow(X),nrow(X)) # rangement des lignes dans le desordre
+  a<- seq(1,nrow(X),round((nrow(X)/10))+1) # selection de 1 ligne sur 10
+  X$fold<-10
+  for (i in 1:9){
+    X$fold[ID[a[i]:(a[i+1]-1)]]<-i
+  }
+  return(X)
+}
+
+# creation de la base de travail :
+X_O<-CROSS(X_O)
+X_1<-CROSS(X_1)
+X_2<-CROSS(X_2)
+X_fin<-rbind(X_O,X_1,X_2)
+X_fin<-X_fin[order(X_fin$fold),]
+rownames(X_fin)<-NULL
+table (X_fin$fold) 
+```
+
+## 2. Etude du modele sur TRAIN par cross validation
+
+```{r}
+# initialisation :
+performances <- c()
+Estime_Plus_Grave <- c()
+Estime_Moins_Grave <- c()
+
+  # les 10 fold sur train :
+  for (i in 1:10){
+    # Train qui contient 9 blocs
+    training_set <- X_fin[X_fin$fold != i,]
+    # test qui contient 1 bloc
+    testing_set <-  X_fin[X_fin$fold == i,]
+    # modele 
+    MULTI_LOG1.fit <- multinom(TYPE_CLASSEMENT ~ ANNEE_POSE+AGE+VITESSE +UIC +TRAIN +Profil +TYPE_RAYON_COURBE, data=training_set)
+    MULTI_LOG1.pred <- predict(MULTI_LOG1.fit, newdata = testing_set)
+    
+    # matrice de confusion
+    K <- table(MULTI_LOG1.pred, testing_set$TYPE_CLASSEMENT)
+    K <- addmargins(table(MULTI_LOG1.pred,testing_set$TYPE_CLASSEMENT))
+    
+    # calcul du taux de bien classé, et des erreurs 
+    CLASSE_OK<-(mean(MULTI_LOG1.pred == testing_set$TYPE_CLASSEMENT))
+    # Calcul du taux d'estimé plus grave : 
+    TPG <- (K[3,1]+K[1,2]+K[3,2])/K[4,4]
+    # Calcul du taux d'estimé moins grave : 
+    TMG <- (K[2,1]+K[1,3]+K[2,3])/K[4,4]
+
+    # Ajouter à la liste ->> à la fin on obtient 10 : on les moyenne
+    performances[i] <- CLASSE_OK
+    Estime_Plus_Grave [i] <- TPG
+    Estime_Moins_Grave[i] <- TMG
+   }
+  # Moyenne des erreurs :
+  print(c('PerformanceR' = mean(performances)))
+  print(c('Estime_Plus_Grave' = mean(Estime_Plus_Grave)))
+  print(c('Estime_Moins_Grave' = mean(Estime_Moins_Grave)))
+
+```
+
+## 3. Construction du modéle sur TRAIN
+
+Le modéle :
+```{r}
+MULTI_LOG1.fit <- multinom(TYPE_CLASSEMENT ~ ANNEE_POSE+AGE+VITESSE +UIC +TRAIN +Profil +TYPE_RAYON_COURBE , data=BASE_Multi_TRAIN)
+summary(MULTI_LOG1.fit)
+```
+Validation sur TEST :
+```{r}
+MULTI_LOG1.pred <- predict(MULTI_LOG1.fit, newdata = BASE_Multi_TEST)
+
+# Matrice de confusion :
+K <- table(MULTI_LOG1.pred, BASE_Multi_TEST$TYPE_CLASSEMENT)
+K <- addmargins(table(MULTI_LOG1.pred, BASE_Multi_TEST$TYPE_CLASSEMENT))
+
+# calcul du taux de bien classé, et des erreurs 
+CLASSE_OK<-(mean(MULTI_LOG1.pred == BASE_Multi_TEST$TYPE_CLASSEMENT))
+# Calcul du taux d'estimé plus grave : 
+TPG <- (K[3,1]+K[1,2]+K[3,2])/K[4,4]
+# Calcul du taux d'estimé moins grave : 
+TMG <- (K[2,1]+K[1,3]+K[2,3])/K[4,4]  
+   
+# Affichage :
+  print(c('PerformanceR' = CLASSE_OK))
+  print(c('Estime_Plus_Grave' = TPG))
+  print(c('Estime_Moins_Grave' = TMG))
+```
+
+## 4. Avec une selection backward sur AIC :
+
+```{r}
+MULTI_LOG1.fit.backaic <- step(MULTI_LOG1.fit)
+```
+
+Modele du step :
+```{r}
+summary(MULTI_LOG1.fit.backaic)
+```
+
+Validation sur TEST :
+```{r}
+MULTI_LOG1.pred.backaic <- predict(MULTI_LOG1.fit.backaic, newdata = BASE_Multi_TEST)
+
+# Matrice de confusion :
+K <- table(MULTI_LOG1.pred.backaic, BASE_Multi_TEST$TYPE_CLASSEMENT)
+K <- addmargins(table(MULTI_LOG1.pred.backaic, BASE_Multi_TEST$TYPE_CLASSEMENT))
+
+# calcul du taux de bien classé, et des erreurs 
+CLASSE_OK<-(mean(MULTI_LOG1.pred.backaic == BASE_Multi_TEST$TYPE_CLASSEMENT))
+# Calcul du taux d'estimé plus grave : 
+TPG <- (K[3,1]+K[1,2]+K[3,2])/K[4,4]
+# Calcul du taux d'estimé moins grave : 
+TMG <- (K[2,1]+K[1,3]+K[2,3])/K[4,4]  
+   
+# Affichage :
+  print(c('PerformanceR' = CLASSE_OK))
+  print(c('Estime_Plus_Grave' = TPG))
+  print(c('Estime_Moins_Grave' = TMG))
+```
+# C'est exactement le meme modéle.
+
+
+
+
+
+
+
+
+
+
+
