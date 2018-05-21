@@ -1,0 +1,162 @@
+---
+title: 'REGRESSION MULTI - RIDGE, LASSO & ELASTIC NET,' 
+subtitle: 'FISSURATION : FORT, MOYEN et FAIBLE RISQUE DE RUPTURE' 
+output:
+  rmarkdown::html_document:
+    theme: cerulean
+    number_sections: no
+    toc: no
+    toc_depth: 5
+    toc_float: true
+---
+
+## 1. Installation des packages et creation de la base de design et du vecteur réponse :
+
+### Packages :
+```{r}
+# install.packages("glmnet")
+library(glmnet) # Pour les regressions RIDGE, LASSO et ELASTIC NET :
+```
+
+### Base de design et vecteur réponse :
+```{r}
+BASE_TRAVAIL <- read.table("BASE_TRAVAIL.csv",sep=";",header=T)
+  BASE_TRAVAIL<- subset(BASE_TRAVAIL, BASE_TRAVAIL$TYPE_CLASSEMENT=="O"| BASE_TRAVAIL$TYPE_CLASSEMENT== "X1"| BASE_TRAVAIL$TYPE_CLASSEMENT=="X2")
+BASE_Multi_TRAIN <- read.table("BASE_Multi_TRAIN.csv",sep=";",header=T)
+BASE_Multi_TEST  <- read.table("BASE_Multi_TEST.csv",sep=";",header=T)
+
+# Base de design : 12 variables
+X <- model.matrix(TYPE_CLASSEMENT~ANNEE_POSE+AGE+VITESSE+UIC+TRAIN+Profil+TYPE_RAYON_COURBE, BASE_TRAVAIL)[,-1] 
+Y <- BASE_TRAVAIL$TYPE_CLASSEMENT
+# head(X,3)
+# head(Y,3)
+
+# Base de design :
+X_TRAIN <- model.matrix(TYPE_CLASSEMENT~ANNEE_POSE+AGE+VITESSE +UIC +TRAIN +Profil +TYPE_RAYON_COURBE, BASE_Multi_TRAIN)[,-1] 
+Y_TRAIN <- BASE_Multi_TRAIN$TYPE_CLASSEMENT
+# head(X_TRAIN,3)
+# head(Y_TRAIN,3)
+
+# Base de design :
+X_TEST <- model.matrix(TYPE_CLASSEMENT~ANNEE_POSE+AGE+VITESSE +UIC +TRAIN +Profil +TYPE_RAYON_COURBE, BASE_Multi_TEST)[,-1] 
+Y_TEST <- BASE_Multi_TEST$TYPE_CLASSEMENT
+# head(X_TEST,3)
+# head(Y_TEST,3)
+```
+
+## 2. Cross Validation sur base TRAIN pour choix du lambda sur chaque modéle :
+
+### Grille de valeurs de lambda
+```{r}
+#grid <- 10^seq(10,-2,length=100)
+```
+
+### CV sur les 11 modéles :
+```{r}
+# Pour chaque modele, on fait du 10-fold pour trouver le lambda qui minimise l'erreur de validation croisée
+for (i in 0:10) {
+    set.seed(1)
+    assign(paste("MULTI_ELASTIC.fitcv", i, sep=""), 
+    cv.glmnet( X_TRAIN,Y_TRAIN, type.measure="deviance", alpha=i/10, family="multinomial", type.multinomial="grouped"))
+}
+```
+
+### Visualisation des courbes pour chacun des 11 modeles 
+```{r}
+par(mfrow=c(2,2))
+for (i in 0:10) {
+ plot.cv.glmnet( get(paste0("MULTI_ELASTIC.fitcv", i)) ,main = paste("Pour alpha=",i,"/10",sep="") )
+  }
+```
+### Les lambda optimaux pour chacun des 11 modeles :
+```{r}
+for (i in 0:10) {
+    assign( paste0("lambda.fit", i, ".cv"), 
+    get(paste0("MULTI_ELASTIC.fitcv",i))$lambda.min )
+    print ( paste( "Pour alpha=",i,"/10, le lambda optimal est",get(paste0("lambda.fit", i, ".cv"))) )
+}
+```
+
+### Les 11 modeles sur train avec le lambda optimal :
+```{r}
+for (i in 0:10) {
+    assign( paste("MULTI_ELASTIC.fit", i, sep=""), 
+    glmnet( X_TRAIN, Y_TRAIN, family="multinomial", type.multinomial="grouped", alpha=i/10, lambda= get(paste0("lambda.fit", i, ".cv")), thresh=1e-12)
+    )
+}
+```
+
+
+## 3. Choix du modéle optimal sur les 11 modéles créés : 
+
+### Prédiction sur le TRAIN des 11 modéles :
+```{r}
+# La classe predite :
+for (i in 0:10) {
+    assign( paste0("MULTI_ELASTIC.pred", i), 
+    predict( get(paste("MULTI_ELASTIC.fit", i, sep="")), s=get(paste0("lambda.fit", i, ".cv")), newx=X_TRAIN , type = "class" ))
+}
+```
+
+### Taux de bien classés par modéle :
+```{r}
+TAUX_BIEN_CLASSE<-c()
+for (i in 0:10) {
+  assign( paste0("TAUX_BIEN_CLASSE.mod", i), mean( get(paste0("MULTI_ELASTIC.pred", i)) == Y_TRAIN))
+  TAUX_BIEN_CLASSE[i+1]<- get( paste0("TAUX_BIEN_CLASSE.mod", i))
+  print ( paste( "Pour alpha=",i,"/10, le taux de bien classé est de", get(paste0("TAUX_BIEN_CLASSE.mod", i)) ) )
+}
+```
+
+### choix du modele donnant le max de l'AUC :
+```{r}
+indice <- which.max(TAUX_BIEN_CLASSE) - 1
+indice
+```
+Donc le meilleur modele en terme de bien classés est pour alpha=2/10
+
+
+## 4. Application du modele choisi sur le TEST :
+
+### le modele : Pour alpha=0.2 et lambda=lambda.fit2.cv :
+```{r}
+MULTI_ELASTIC.fit <- glmnet( X_TRAIN, Y_TRAIN, family="multinomial", type.multinomial="grouped", alpha=2/10, lambda=lambda.fit2.cv, thresh=1e-12)
+```
+
+### Application du modéle sur le TEST :
+```{r}
+MULTI_ELASTIC.pred <- predict( MULTI_ELASTIC.fit , s=lambda.fit2.cv, newx=X_TEST, type = "class")
+```
+
+### Performance :
+```{r}
+# Taux de bien classés :
+perf <- mean( MULTI_ELASTIC.pred == Y_TEST)
+
+# Matrice de confusion :
+confusion <- addmargins(table(MULTI_ELASTIC.pred, Y_TEST))
+
+# Calcul du taux d'estimé plus grave : 
+TPG <- (confusion[2,1])/confusion[3,4]
+
+# Calcul du taux d'estimé moins grave : 
+TMG <- (confusion[1,2]+confusion[1,3]+confusion[2,3])/confusion[3,4]
+
+# Affichage :
+  confusion
+  print(c('Performance' = perf))
+  print(c("Taux d'estimés plus grave" = TPG))
+  print(c("Taux d'estimés moins grave" = TMG))   
+```
+
+### Les coefficients :
+```{r}
+MULTI_ELASTIC.coeff <- predict( MULTI_ELASTIC.fit , s=lambda.fit2.cv, newx=X_TEST, type = "coefficients")
+MULTI_ELASTIC.coeff
+```
+
+
+
+
+
+
