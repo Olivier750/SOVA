@@ -1,0 +1,92 @@
+---
+title: 'REGRESSION LOGISTIQUE MULTINOMIALE' 
+subtitle: 'FISSURATION : FORT, MOYEN et FAIBLE RISQUE DE RUPTURE' 
+output:
+  rmarkdown::html_document:
+    theme: cerulean
+    number_sections: no
+    toc: no
+    toc_depth: 5
+    toc_float: true
+---
+
+## 1. Installation des packages et Import des bases d'etude (Construction / validation) :
+
+### Installation des packages :
+```{r}
+# install.packages("nnet")
+library(nnet) # Pour la regression multinomiale
+
+# install.packages("MASS")
+library(MASS) # Pour la selection des données
+```
+
+### Import des données :
+```{r}
+BASE_Multi_TRAIN <- read.table("BASE_Multi_TRAIN.csv",sep=";",header=T)
+BASE_Multi_TEST  <- read.table("BASE_Multi_TEST.csv",sep=";",header=T)
+
+names(BASE_Multi_TRAIN)
+```
+
+## 2. Selection des variables sur TRAIN :
+
+### Le modéle complet :
+```{r}
+MULTI_LOG.fit <- multinom(TYPE_CLASSEMENT ~ ANNEE_POSE+AGE+VITESSE +UIC +TRAIN +Profil +TYPE_RAYON_COURBE , data=BASE_Multi_TRAIN)
+summary(MULTI_LOG.fit)
+```
+
+### Selection de variables :
+```{r}
+# backward :
+MULTI_LOG.fit.backAIC <- stepAIC(MULTI_LOG.fit, direction="backward", trace=3)
+summary(MULTI_LOG.fit.backAIC )
+
+# forward :
+MULTI_LOG.fit0 <- multinom(TYPE_CLASSEMENT ~ 1, data=BASE_Multi_TRAIN)
+MULTI_LOG.fit.forAIC <- stepAIC(MULTI_LOG.fit0, scope = list(upper = ~ ANNEE_POSE + AGE + VITESSE + UIC + TRAIN + Profil + TYPE_RAYON_COURBE, lower = ~1), direction="forward", trace=3)
+summary(MULTI_LOG.fit.forAIC)
+
+# both :
+MULTI_LOG.fit.bothAIC <- stepAIC(MULTI_LOG.fit0, scope = list(upper = ~ ANNEE_POSE + AGE + VITESSE + UIC + TRAIN + Profil + TYPE_RAYON_COURBE, lower = ~1), direction="both", trace=3)
+summary(MULTI_LOG.fit.bothAIC)
+```
+Tous pareil on garde toutes les variables :
+ANNEE_POSE + TRAIN + AGE + Profil + VITESSE + TYPE_RAYON_COURBE + UIC
+
+
+## 3. On teste le modele MULTI_LOG.fit sur base TEST :
+
+### Application du modéle sur TEST :
+```{r}
+MULTI_LOG.pred <- predict(MULTI_LOG.fit, newdata = BASE_Multi_TEST)
+```
+
+### Performance :
+```{r}
+# Matrice de confusion :
+K <- addmargins(table(MULTI_LOG.pred, BASE_Multi_TEST$TYPE_CLASSEMENT))
+
+# calcul du taux de bien classé, et des erreurs 
+CLASSE_OK<-(mean(MULTI_LOG.pred == BASE_Multi_TEST$TYPE_CLASSEMENT))
+# Calcul du taux d'estimé plus grave : 
+TPG <- (K[2,1]+K[3,1]+K[3,2])/K[4,4]
+# Calcul du taux d'estimé moins grave : 
+TMG <- (K[1,2]+K[1,3]+K[2,3])/K[4,4]  
+   
+# Affichage :
+  K
+  print(c('PerformanceR' = CLASSE_OK))
+  print(c('Estime_Plus_Grave' = TPG))
+  print(c('Estime_Moins_Grave' = TMG))
+```
+
+
+
+
+
+
+
+
+
