@@ -1,0 +1,257 @@
+---
+title: 'REGRESSION  RIDGE, LASSO & ELASTIC NET,' 
+subtitle: 'FISSURATION AVEC RISQUE DE RUPTURE vs NON RUPTURE' 
+output:
+  rmarkdown::html_document:
+    theme: cerulean
+    number_sections: no
+    toc: no
+    toc_depth: 5
+    toc_float: true
+---
+
+## 1. Installation des packages et creation de la base de design et du vecteur réponse :
+
+### Packages :
+```{r}
+# install.packages("glmnet")
+library(glmnet) # Pour les regressions RIDGE, LASSO et ELASTIC NET
+
+# install.packages("pROC")
+library(pROC) # Pour le calcul de l'AUC
+
+#install.packages("Epi")
+library(Epi) # Pour la courbe ROC
+```
+
+### Base de design et vecteur réponse :
+```{r}
+BASE_TRAVAIL <- read.table("BASE_TRAVAIL.csv",sep=";",header=T)
+BASE_Bin_TRAIN <- read.table("BASE_Bin_TRAIN.csv",sep=";",header=T)
+BASE_Bin_TEST  <- read.table("BASE_Bin_TEST.csv",sep=";",header=T)
+
+# Base de design : 12 variables
+X <- model.matrix(Class_Binaire~ANNEE_POSE+AGE+VITESSE +UIC +TRAIN +Profil +TYPE_RAYON_COURBE,BASE_TRAVAIL)[,-1] 
+Y <- BASE_TRAVAIL$Class_Binaire
+# head(X,3)
+# head(Y,3)
+
+# Base de design :
+X_TRAIN <- model.matrix(Class_Binaire~ANNEE_POSE+AGE+VITESSE +UIC +TRAIN +Profil +TYPE_RAYON_COURBE, BASE_Bin_TRAIN)[,-1] 
+Y_TRAIN <- BASE_Bin_TRAIN$Class_Binaire
+# head(X_TRAIN,3)
+# head(Y_TRAIN,3)
+
+# Base de design :
+X_TEST <- model.matrix(Class_Binaire~ANNEE_POSE+AGE+VITESSE +UIC +TRAIN +Profil +TYPE_RAYON_COURBE, BASE_Bin_TEST)[,-1] 
+Y_TEST <- BASE_Bin_TEST$Class_Binaire
+# head(X_TEST,3)
+# head(Y_TEST,3)
+```
+
+## 2. Cross Validation sur base TRAIN pour choix du lambda pour chaque modéle :
+
+### Grille de valeurs de lambda
+```{r}
+#grid <- 10^seq(10,-2,length=100)
+```
+
+### CV sur les 11 modéles :
+```{r}
+# Pour chaque modele, on fait du 10-fold pour trouver le lambda qui minimise l'erreur de validation croisée
+for (i in 0:10) {
+    set.seed(1)
+    assign(paste("BIN_ELASTIC.fitcv", i, sep=""), 
+    cv.glmnet( X_TRAIN,Y_TRAIN, type.measure="deviance", alpha=i/10, family="binomial")
+    )
+}
+```
+
+### Visualisation des courbes pour chacun des 11 modeles 
+```{r}
+par(mfrow=c(2,2))
+for (i in 0:10) {
+ plot.cv.glmnet( get(paste0("BIN_ELASTIC.fitcv", i)) ,main = paste("Pour alpha=",i,"/10",sep="") )
+  }
+```
+### Les lambda optimaux pour chacun des 11 modeles :
+```{r}
+for (i in 0:10) {
+    assign( paste0("lambda.fit", i, ".cv"), 
+    get(paste0("BIN_ELASTIC.fitcv",i))$lambda.min )
+    print ( paste( "Pour alpha=",i,"/10, le lambda optimal est",get(paste0("lambda.fit", i, ".cv"))) )
+}
+```
+
+### Les 11 modeles sur train avec le lambda optimal :
+```{r}
+for (i in 0:10) {
+    assign( paste("BIN_ELASTIC.fit", i, sep=""), 
+    glmnet( X_TRAIN, Y_TRAIN, family="binomial", alpha=i/10, lambda= get(paste0("lambda.fit", i, ".cv")), thresh=1e-12)
+    )
+}
+```
+
+
+## 3. Choix du modéle optimal sur les 11 modéles créés : 
+
+### Prédiction sur le TRAIN des 11 modéles :Choix du modele en fonction de l'AUC sur la base TRAIN :
+```{r}
+# La proba predite :
+for (i in 0:10) {
+    assign( paste0("BIN_ELASTIC.probs", i), 
+    predict( get(paste("BIN_ELASTIC.fit", i, sep="")), s=get(paste0("lambda.fit", i, ".cv")), newx=X_TRAIN , type = "response" ))
+}
+```
+
+### calcul de l'AUC pour chaque modele :
+```{r}
+AUC<-c()
+for (i in 0:10) {
+AUC[i+1]<- auc ( roc(Y_TRAIN, as.numeric( get(paste0("BIN_ELASTIC.probs", i))), auc=TRUE) )
+}
+AUC
+```
+
+### choix du modele donnant le max de l'AUC :
+```{r}
+indice <- which.max(AUC) - 1
+indice
+```
+Donc le meilleur modele en terme d'auc est pour alpha=8/10
+
+
+## 4. Choix par cross validation du seuil de la proba à appliquer sur le modéle retenu : 
+
+### Création des 10 folds sur TRAIN avec repartition homogéne des modalités 0 et 1 :
+```{r}
+# separation des reponses :
+X<-BASE_Bin_TRAIN ;rownames(X)<-NULL
+X_0 <-X[which(X$Class_Binaire==0),] ;rownames(X_0)<-NULL
+X_1 <-X[which(X$Class_Binaire==1),] ;rownames(X_1)<-NULL
+
+# creation fonction qui recupere 1/10 de la base aleatoirement : 
+CROSS<-function(X){
+  set.seed(1444)
+  ID<-sample(1:nrow(X),nrow(X)) # rangement des lignes dans le desordre
+  a<- seq(1,nrow(X),round((nrow(X)/10))+1) # selection de 1 ligne sur 10
+  X$fold<-10
+  for (i in 1:9){
+    X$fold[ID[a[i]:(a[i+1]-1)]]<-i
+  }
+  return(X)
+}
+
+# creation de la base de travail :
+X_0<-CROSS(X_0)
+X_1<-CROSS(X_1)
+X_fin<-rbind(X_0,X_1)
+X_fin<-X_fin[order(X_fin$fold),]
+rownames(X_fin)<-NULL
+# table (X_fin$fold) 
+```
+
+### Application du modéle sur les 10 folds et choix de la proba optimale :
+```{r}
+# initialisation :
+performances <- c()
+Faux_Positif <- c()
+Faux_negatif <- c()
+proba_optim  <- c()
+
+  # les 10 fold sur train :
+  for (i in 1:10) {
+    
+    # Train qui contient 9 blocs en base de design et test qui contient 1 bloc
+    training_set <- X_fin[X_fin$fold != i,]
+    training_set_X <- model.matrix(Class_Binaire~ANNEE_POSE+AGE+VITESSE +UIC +TRAIN +Profil +TYPE_RAYON_COURBE, training_set)[,-1] 
+    training_set_Y <- training_set$Class_Binaire
+    
+    testing_set <-  X_fin[X_fin$fold == i,]
+    testing_set_X <- model.matrix(Class_Binaire~ANNEE_POSE+AGE+VITESSE +UIC +TRAIN +Profil +TYPE_RAYON_COURBE, testing_set)[,-1] 
+    testing_set_Y <- testing_set$Class_Binaire
+   
+    # modele 
+    BIN_ELASTIC.fit8.cv <- glmnet(training_set_X, training_set_Y, family="binomial", alpha=8/10, lambda= lambda.fit8.cv, thresh=1e-12)
+      
+    BIN_ELASTIC.probs8.cv <- predict( BIN_ELASTIC.fit8, s=lambda.fit8.cv, newx=testing_set_X , type = "response")
+    
+    roc<-ROC(test = BIN_ELASTIC.probs8.cv, stat = testing_set_Y, data = testing_set_X, plot = "ROC", MI=F)
+    
+    # prob_80sens <- roc$res$BIN_LOG2.probs[which.min (roc$res$sens>=0.8) ]
+    prob_optim  <- roc$res$BIN_ELASTIC.probs8.cv[which.max (roc$res$sens + roc$res$spec) ]
+    
+    BIN_ELASTIC.pred8.cv <- rep("0", length(BIN_ELASTIC.probs8.cv))
+    BIN_ELASTIC.pred8.cv[BIN_ELASTIC.probs8.cv > prob_optim] = "1"
+    
+    # matrice de confusion
+    K <- addmargins (table(BIN_ELASTIC.pred8.cv, testing_set_Y)) 
+    # calcul du taux de bien classé, et des erreurs FP et FN
+    CLASSE_OK <- (mean(BIN_ELASTIC.pred8.cv == testing_set_Y)) 
+    TFP <- K[2,1]/K[3,1]
+    TFN <- K[1,2]/K[3,2]
+    # Ajouter à la liste ->> à la fin, on les moyenne
+    performances[i] <- CLASSE_OK
+    Faux_Positif[i] <- TFP
+    Faux_negatif[i] <- TFN
+    proba_optim[i]  <- prob_optim
+    
+  }
+    performances
+    Faux_Positif
+    Faux_negatif
+    proba_optim
+  # Moyenne des erreurs :
+  print(c('Performance' = mean(performances)))
+  print(c('TFP' = mean(Faux_Positif)))
+  print(c('TFN' = mean(Faux_negatif)))
+  print(c('Proba Optimale' = mean(proba_optim))) 
+```
+Donc on choisit 0.3326439 comme proba optimale.
+
+
+## 5. Application du modele choisi sur le TEST :
+
+### la prediction de Y sur la base TEST : Pour alpha=0.8, lambda=lambda.fit8.cv, et proba=mean(proba_optim) :
+```{r}
+# le modele :
+BIN_ELASTIC.fit <- glmnet( X_TRAIN, Y_TRAIN, family="binomial", alpha=8/10, lambda=lambda.fit8.cv, thresh=1e-12)
+
+# Application sur le TEST :
+BIN_ELASTIC.probs <- predict( BIN_ELASTIC.fit , s=lambda.fit8.cv, newx=X_TEST, type = "response")
+
+# Evaluation de l'erreur de prediction avec proba optimale :  
+BIN_ELASTIC.pred  <- rep("0", length(BIN_ELASTIC.probs))
+    BIN_ELASTIC.pred[BIN_ELASTIC.probs > mean(proba_optim)] = "1"
+    
+# Matrice de confusion associé au modèle
+confusion <- addmargins(table(BIN_ELASTIC.pred, Y_TEST))    
+
+# Calcul de la moyenne des bien predits sur le train :  
+perf <- (mean(BIN_ELASTIC.pred == Y_TEST) )
+# Calcul du taux de Faux positifs (TFP) : 
+TFP <- confusion[2,1]/confusion[3,1]
+# Calcul du taux de Faux negatifs (TFN) : 
+TFN <- confusion[1,2]/confusion[3,2]
+
+# Affichage :
+  confusion
+  print(c('Performance' = perf))
+  print(c('TFP' = TFP))
+  print(c('TFN' = TFN))   
+```
+
+### Courbe ROC sur le TEST :
+```{r}
+ROC(test = BIN_ELASTIC.probs,
+	stat = Y_TEST,
+	data = X_TEST, plot = "ROC", MI=F)
+```
+### Les coefficients :
+```{r}
+BIN_ELASTIC.coeff <- predict( BIN_ELASTIC.fit , s=lambda.fit8.cv, newx=X_TEST, type = "coefficients")
+BIN_ELASTIC.coeff
+```
+
+
+
