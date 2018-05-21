@@ -1,0 +1,192 @@
+---
+title: 'REGRESSION LOGISTIQUE BINAIRE' 
+subtitle: 'FISSURATION AVEC RISQUE DE RUPTURE vs NON RUPTURE' 
+output:
+  rmarkdown::html_document:
+    theme: cerulean
+    number_sections: no
+    toc: no
+    toc_depth: 5
+    toc_float: true
+---
+
+## 1. Installation des librairies et Import des bases d'etude (Construction / validation) :
+
+### Librairies :
+```{r}
+# install.packages("MASS")
+library(MASS)  # Pour la selection de variable
+
+# install.packages("Epi")
+library(Epi)   # Pour la courbe ROC
+```
+
+### Import
+```{r}
+BASE_Bin_TRAIN <- read.table("BASE_Bin_TRAIN.csv",sep=";",header=T)
+BASE_Bin_TEST  <- read.table("BASE_Bin_TEST.csv",sep=";",header=T)
+
+names(BASE_Bin_TRAIN)
+```
+
+## 2. Selection des variables sur TRAIN :
+
+### Le modéle complet :
+```{r}
+# Le modéle :
+BIN_LOG.fit <- glm(Class_Binaire ~ ANNEE_POSE+AGE+VITESSE +UIC +TRAIN +Profil +TYPE_RAYON_COURBE , data=BASE_Bin_TRAIN, family="binomial")
+summary(BIN_LOG.fit)
+anova(BIN_LOG.fit, test = "Chisq")
+```
+
+### Selection de variables :
+```{r}
+# backward :
+BIN_LOG.fit.backAIC <- stepAIC(BIN_LOG.fit, direction="backward", trace=3)
+summary(BIN_LOG.fit.backAIC )
+
+# forward :
+BIN_LOG.fit0 <- glm(Class_Binaire ~ 1, data=BASE_Bin_TRAIN, family="binomial")
+BIN_LOG.fit.forAIC <- stepAIC(BIN_LOG.fit0, scope = list(upper = ~ ANNEE_POSE + AGE + VITESSE + UIC + TRAIN + Profil + TYPE_RAYON_COURBE, lower = ~1), direction="forward", trace=3)
+summary(BIN_LOG.fit.forAIC)
+
+# both :
+BIN_LOG.fit.bothAIC <- stepAIC(BIN_LOG.fit0, scope = list(upper = ~ ANNEE_POSE + AGE + VITESSE + UIC + TRAIN + Profil + TYPE_RAYON_COURBE, lower = ~1), direction="both", trace=3)
+summary(BIN_LOG.fit.bothAIC)
+```
+Tous pareil on garde le modele initial avec toutes les variables :
+ANNEE_POSE + TRAIN + AGE + Profil + VITESSE + TYPE_RAYON_COURBE + UIC
+
+## 3. Etude du modele sur TRAIN pour choisir le seuil de probabilité par cross validation 
+
+### Création des 10 folds sur TRAIN avec repartition homogéne des modalités 0 et 1
+```{r}
+# separation des reponses :
+X<-BASE_Bin_TRAIN ;rownames(X)<-NULL
+X_0 <-X[which(X$Class_Binaire==0),] ;rownames(X_0)<-NULL
+X_1 <-X[which(X$Class_Binaire==1),] ;rownames(X_1)<-NULL
+
+# creation fonction qui recupere 1/10 de la base aleatoirement : 
+CROSS<-function(X){
+  set.seed(1444)
+  ID<-sample(1:nrow(X),nrow(X)) # rangement des lignes dans le desordre
+  a<- seq(1,nrow(X),round((nrow(X)/10))+1) # selection de 1 ligne sur 10
+  X$fold<-10
+  for (i in 1:9){
+    X$fold[ID[a[i]:(a[i+1]-1)]]<-i
+  }
+  return(X)
+}
+
+# creation de la base de travail :
+X_0<-CROSS(X_0)
+X_1<-CROSS(X_1)
+X_fin<-rbind(X_0,X_1)
+X_fin<-X_fin[order(X_fin$fold),]
+rownames(X_fin)<-NULL
+# table (X_fin$fold) 
+```
+
+### Application du modéle :
+```{r}
+# initialisation :
+performances <- c()
+Faux_Positif <- c()
+Faux_negatif <- c()
+proba_optim  <- c()
+
+  # les 10 fold sur train :
+  for (i in 1:10){
+    
+    # Train qui contient 9 blocs
+    training_set <- X_fin[X_fin$fold != i,]
+    # test qui contient 1 bloc
+    testing_set <-  X_fin[X_fin$fold == i,]
+    # modele 
+    BIN_LOG.fit.cv <- glm(Class_Binaire ~ ANNEE_POSE +TRAIN+AGE+VITESSE +UIC + Profil +TYPE_RAYON_COURBE, data=training_set, family="binomial")
+    BIN_LOG.probs.cv <- predict(BIN_LOG.fit.cv, testing_set, type = "response", allow.new.levels = TRUE)
+    
+    roc<-ROC(test = BIN_LOG.probs.cv, stat = testing_set$Class_Binaire,
+	data = testing_set, plot = "ROC", MI=F)
+    
+    # prob_80sens <- roc$res$BIN_LOG2.probs[which.min (roc$res$sens>=0.8) ]
+    prob_optim  <- roc$res$BIN_LOG.probs.cv[which.max (roc$res$sens + roc$res$spec) ]
+    
+    BIN_LOG.pred.cv <- rep("0", length(BIN_LOG.probs.cv))
+    BIN_LOG.pred.cv[BIN_LOG.probs.cv > prob_optim] = "1"
+    
+    # matrice de confusion
+    K <- addmargins(table(BIN_LOG.pred.cv, testing_set$Class_Binaire))
+    # calcul du taux de bien classé, et des erreurs FP et FN
+    CLASSE_OK<-(mean(BIN_LOG.pred.cv == testing_set$Class_Binaire))
+    TFP <- K[2,1]/K[3,1]
+    TFN <- K[1,2]/K[3,2]
+    # Ajouter à la liste ->> à la fin, on les moyenne
+    performances[i] <- CLASSE_OK
+    Faux_Positif[i] <- TFP
+    Faux_negatif[i] <- TFN
+    proba_optim[i]  <- prob_optim
+    
+  }
+    performances
+    Faux_Positif
+    Faux_negatif
+    proba_optim
+  # Moyenne des erreurs :
+  print(c('Performance' = mean(performances)))
+  print(c('TFP' = mean(Faux_Positif)))
+  print(c('TFN' = mean(Faux_negatif)))
+  print(c('Proba Optimale' = mean(proba_optim))) 
+```
+
+## 3. Construction du modéle sur TRAIN et validation sur TEST avec la proba choisie :
+
+### Le modéle :
+```{r}
+BIN_LOG.fit <- glm(Class_Binaire ~ ANNEE_POSE +TRAIN+AGE+VITESSE +UIC + Profil +TYPE_RAYON_COURBE, data=BASE_Bin_TRAIN, family="binomial")
+# summary(BIN_LOG2.fit)
+```
+
+### Application sur le TEST :
+```{r}
+BIN_LOG.probs = predict(BIN_LOG.fit, BASE_Bin_TEST, type = "response")
+```
+
+### Performance :
+```{r}
+# Evaluation de l'erreur de prediction avec proba optimale :    
+BIN_LOG.pred <- rep("0", length(BIN_LOG.probs))
+BIN_LOG.pred [BIN_LOG.probs > mean(proba_optim)] = "1"
+
+# Matrice de confusion associé au modèle
+confusion <- addmargins(table(BIN_LOG.pred, BASE_Bin_TEST$Class_Binaire))
+
+# Calcul de la moyenne des bien predits sur le train :  
+perf <- (mean(BIN_LOG.pred == BASE_Bin_TEST$Class_Binaire) )
+# Calcul du taux de Faux positifs (TFP) : 
+TFP <- confusion[2,1]/confusion[3,1]
+# Calcul du taux de Faux negatifs (TFN) : 
+TFN <- confusion[1,2]/confusion[3,2]
+
+# Affichage :
+  confusion
+  print(c('Performance' = perf))
+  print(c('TFP' = TFP))
+  print(c('TFN' = TFN))
+```
+
+### Courbe ROC sur le TEST :
+```{r}
+ROC(test = BIN_LOG.probs,
+	stat = BASE_Bin_TEST$Class_Binaire,
+	data = BASE_Bin_TEST, plot = "ROC", MI=F)
+```
+
+
+
+
+
+
+
+
+
