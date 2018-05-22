@@ -90,13 +90,6 @@ rm(A)
 rm(MyFile)
 ```
 
-Suppression des donn√©es au dela de 118 kilom√®tres (hors ile de france)
-```{r echo=FALSE, warning=FALSE}
-dbSendQuery(conn = con, statement = read_file('Scripts\\02-Suppression donn√©es hors IdF.sql'))
-```
-
-
-
 
 Ajout de 2 colonnes (LIGNE2 et LIGNE_VOIE)
 ```{r echo=FALSE, warning=FALSE}
@@ -357,7 +350,7 @@ Croisons avec les donnÈes anciennes
 ```{r echo=FALSE, warning=FALSE}
 
 
-DONNEE_2010<-read.csv2(file.choose(), header=TRUE, sep=";") # mettre le chemin du fichier donnee_2010.csv
+DONNEE_2010<-read.csv2("Datasources/Donnee_2010.csv", header=TRUE, sep=";") # mettre le chemin du fichier donnee_2010.csv
 TAB_ter<-sqldf("select distinct *
 FROM TAB as t0 left join DONNEE_2010 as t1 on
                t0.ID_DEFAUT=t1.ID_DEFAUT
@@ -376,7 +369,7 @@ TAB1<-unique(TAB1)
 Essayons d'ajouter l'information de la circulation TGV, Transilien ou autre et rectifier l'information de rayon de courbe
 ```{r echo=FALSE, warning=FALSE}
 
-DONNEE_CIRCULATION<-read.csv2(file.choose(), header=TRUE, sep=";") # Lire le fichier DONNEE_CIRCULATION.csv
+DONNEE_CIRCULATION<-read.csv2("Datasources/DONNEE_CIRCULATION.csv", header=TRUE, sep=";") # Lire le fichier DONNEE_CIRCULATION.csv
 
 
 ## Merger les deux tableaux
@@ -419,9 +412,13 @@ TAB2$Profil=factor(TAB2$Profil)
 TAB2$TRAIN=factor(TAB2$TRAIN)
 ```
 
+```{r}
+TAB2$AGE_bis<-cut(TAB2$AGE,breaks = c(-20,10,20,30,40,50,60,70,80,90,200))
+
+```
 # GARDER Uniquement les variables qui nous int√©r√®ssents
 ```{r}
-TAB_bis<-TAB2[,c(1:4,6,7,10,11,13,14,15,16,17,19,20,"ANNEE_POSE","TR_ANNEE_POSE")]
+TAB_bis<-TAB2[,c(1:7,10,11,13,14,15,16,17,19,20,21)]
 ```
 
  supprimons les age n√©gatives et les NA
@@ -429,6 +426,8 @@ TAB_bis<-TAB2[,c(1:4,6,7,10,11,13,14,15,16,17,19,20,"ANNEE_POSE","TR_ANNEE_POSE"
 TAB_bis<-TAB_bis[-which(is.na(TAB_bis$AGE)),]
 TAB_bis<-TAB_bis[-which(TAB_bis$AGE<0),]
 TAB_bis<-TAB_bis[-which(TAB_bis$AGE>150),]
+TAB2$AGE_bis<-cut(TAB2$AGE,breaks = c(-20,10,20,30,40,50,60,70,80,90,200))
+TAB_bis$AGE_bis<-as.factor(TAB_bis$AGE_bis)
 ```
 
 ajouter la variable des O/1
@@ -439,21 +438,27 @@ TAB_bis$Class_Binaire[which(TAB_bis$TYPE_CLASSEMENT=="S"|
 ```
   on transforme TR_ANNEE_POSE en factor :
 ```{r}
-TAB_bisL$TR_ANNEE_POSE<-factor(TAB_bis$TR_ANNEE_POSE)
+TAB_bis$TR_ANNEE_POSE<-factor(TAB_bis$TR_ANNEE_POSE)
 table(TAB_bis$TR_ANNEE_POSE, useNA="always")
-TAB_bis$TR_ANNEE_POSE<-relevel(TAB_bis$TR_ANNEE_POSE,ref="Avant 1970")
+#TAB_bis$TR_ANNEE_POSE<-relevel(TAB_bis$TR_ANNEE_POSE,ref="Avant 1970")
 table(TAB_bis$TR_ANNEE_POSE, useNA="always")
 ```
 RÈgler les modalitÈs des tranches
 ```{r}
+TAB_bis$AGE_bis<-as.character(TAB_bis$AGE_bis)
 TAB_bis$AGE_bis[TAB_bis$AGE_bis=="(-20,10]"]<-"[0,10]"
-TAB_bis$VITESSE_bis[TAB_bis$VITESSE_bis=="(-10,50]"]<-"[50,10]"
+TAB_bis$VITESSE_bis<-as.character(TAB_bis$VITESSE_bis)
+TAB_bis$VITESSE_bis[TAB_bis$VITESSE_bis=="(-10,50]"]<-"[0,50]"
+TAB_bis$VITESSE_bis<-as.factor(TAB_bis$VITESSE_bis)
+
+TAB_bis$TR_ANNEE_POSE<-as.character(TAB_bis$TR_ANNEE_POSE)
 TAB_bis$TR_ANNEE_POSE[TAB_bis$TR_ANNEE_POSE=="(0,1970]"]<-"Avant 1970"
 TAB_bis$TR_ANNEE_POSE[TAB_bis$TR_ANNEE_POSE=="(2000,3000]"]<-"Apres 2000"
+TAB_bis$TR_ANNEE_POSE<-as.factor(TAB_bis$TR_ANNEE_POSE)
+
 
 TAB_bis$AGE_bis<-as.factor(TAB_bis$AGE_bis)
-TAB_bis$VITESSE_bis<-as.factor(TAB_bis$VITESSE_bis)
-TAB_bis$TR_ANNEE_POSE<-as.factor(TAB_bis$TR_ANNEE_POSE)
+
 
 ```
 ## Repmlacement des NA de la variable TRAIN et PRofil
@@ -467,8 +472,10 @@ rownames(TAB_bis)<-NULL
 TAB_bis$TRAIN<-factor(TAB_bis$TRAIN)
 
 ```
-BASE_TRAVAIL<-TAB_bis
 
+```{r}
+BASE_TRAVAIL<-TAB_bis
+```
 
 DÈclaration des bases de donnÈes :
 ```{r}
