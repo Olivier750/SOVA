@@ -1,0 +1,539 @@
+---
+title: "SOVA"
+author: "SOVA"
+date: "29 mars 2018"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+# Initialisation du projet
+
+## Installation des packages
+* readr : The goal of 'readr' is to provide a fast and friendly way to read rectangular data (like 'csv', 'tsv', and 'fwf').  
+It is designed to flexibly parse many types of data found in the wild, while still cleanly failing when data unexpectedly changes.
+* RSQLite : Embeds the 'SQLite' database engine in R and provides an interface compliant with the 'DBI' package. The source for the 'SQLite' engine (version 3.8.8.2) is included.
+* stringr
+* sqldf
+
+```{r echo=FALSE, warning=FALSE}
+packages <- c("readr", "RSQLite", "stringr", "sqldf")
+if (length(setdiff(packages, rownames(installed.packages()))) > 0) {
+  install.packages(setdiff(packages, rownames(installed.packages())))  
+}
+```
+
+## Initialisation du répertoire de travail
+```{r warning=FALSE}
+setwd("E:/Others/Formation Data Science/Projet/Nouveau dossier")
+```
+
+## Suppression des variables
+```{r warning=FALSE}
+rm(list = ls())
+```
+
+## Chargement des librairies
+* readr
+* RSQLite
+* stringr
+* sqldf
+```{r echo=FALSE, warning=FALSE}
+library("readr")
+library("RSQLite")
+library("stringr")
+library("sqldf")
+```
+
+## Création de la base de données
+* Chargement du driver SQLite
+* Création de la connection à la base de données sovadb.sqlite
+* Activation des extensions de SQLite
+* Spatialisation de la base de données
+
+```{r echo=FALSE, warning=FALSE}
+sqldrv <- dbDriver("SQLite")
+
+con <- dbConnect(sqldrv, dbname = "Database\\SOVA_db.sqlite", loadable.extensions = TRUE)
+
+dbSendQuery(conn = con, "SELECT load_extension('mod_spatialite')")
+
+dbSendQuery(conn = con, "SELECT InitSpatialMetaData()")
+```
+
+***
+#Chargement des données
+
+## Chargements des coordonnées GPS des voies
+Test de l'existence de la table *lignes_tmp* (si elle existe, on la détruit et on la recrée)
+La table *lignes_tmp* contient les données GPS brutes.
+
+```{r echo=FALSE, warning=FALSE}
+if (RSQLite::dbExistsTable(conn = con, "lignes_tmp") == TRUE)
+{
+  RSQLite::dbRemoveTable(conn = con, "lignes_tmp")
+}
+
+# Creation d'une table temporaire qui va recevoir les données GPS
+RSQLite::dbSendQuery(conn = con, statement = read_file('Scripts\\01-Create Table lignes_tmp.sql'))
+```
+
+
+Chargement du fichier basegeometrie.rds dans la table lignes_tmp
+```{r echo=FALSE, warning=FALSE}
+MyFile <- paste0(getwd(),"/Datasources/basegeometrie.rds")
+A <- readRDS(MyFile)
+dbWriteTable(conn = con, name="lignes_tmp", A, row.names=FALSE, append=TRUE)
+
+rm(A)
+rm(MyFile)
+```
+
+Suppression des données au dela de 118 kilomètres (hors ile de france)
+```{r echo=FALSE, warning=FALSE}
+dbSendQuery(conn = con, statement = read_file('Scripts\\02-Suppression données hors IdF.sql'))
+```
+
+
+
+
+Ajout de 2 colonnes (LIGNE2 et LIGNE_VOIE)
+```{r echo=FALSE, warning=FALSE}
+#Ajout d'une colonne LIGNE2 qui contiendra la colonne LIGNE nettoyé
+dbSendQuery(conn = con, statement = read_file('Scripts\\03-Ajouter une colonne.sql'))
+dbSendQuery(conn = con, statement = read_file('Scripts\\04-Ajouter une colonne.sql'))
+```
+
+Mise à jour des colonnes (LIGNE2 et LIGNE_VOIE)
+```{r echo=FALSE, warning=FALSE}
+#Mise a jour de la colonne LIGNE2
+dbSendQuery(conn = con, statement = read_file('Scripts\\05-MAJ colonne.sql'))
+```
+
+
+Test de l'existence de la table *lignes* (si elle existe, on la détruit et on la recrée)
+la table *lignes* contient les coordonnées GPS nettoyées et spatialisées
+```{r echo=FALSE, warning=FALSE}
+if (dbExistsTable(conn = con, "lignes") == TRUE)
+{
+  dbRemoveTable(conn = con, "lignes")
+}
+
+#Creation d'une table qui va recevoir les données GPS
+dbSendQuery(conn = con, statement = read_file('Scripts\\06-Create Table lignes.sql'))
+```
+
+Spatialisation de la table *lignes*
+-ajout d'une colonne geometrique
+-insertion des données
+-mise à jour de la colonne spatiale
+-création d'un index spatiale
+```{r echo=FALSE, warning=FALSE}
+#creation de la colonne spatiale
+dbSendQuery(conn = con, statement = read_file('Scripts\\07-AddGeometryColumn.sql'))
+
+#Insertion des données dans la table
+dbSendQuery(conn = con, statement = read_file('Scripts\\08-Insert Into.sql'))
+
+#Mise a jour de la colonne geospatiale
+dbSendQuery(conn = con, statement = read_file('Scripts\\09-MAJ Colonne spatiale.sql'))
+
+#Creation d'un index spatial
+dbSendQuery(conn = con, statement = read_file('Scripts\\10-CreateSpatialIndex.sql'))
+```
+
+
+## Chargement des données de réparation
+boucle sur le répertoire *Datasources* pour charger tous les fichiers csv dans une table temporaire
+```{r echo=FALSE, warning=FALSE}
+#listing de tous les fichiers csv se trouvant dans le repertoire Datasources
+ListFile <- list.files(path = "Datasources\\", pattern = "*.csv")
+
+#boucle sur les fichiers csv
+for (i in 1:length(ListFile))
+{
+#on insere le contenu de chaque fichier csv dans une table portant son nom
+  MonFichier <- read.csv(paste0("datasources\\", ListFile[[i]]), sep = ";")
+  MaTable <- substr(ListFile[[i]],1,10)
+  
+  #Si la table existe, on la supprime avant
+  if (dbExistsTable(con, MaTable) == TRUE)
+  {
+    dbRemoveTable(con, MaTable)
+  }
+  
+  dbWriteTable(conn = con, 
+               name = MaTable, 
+               value = MonFichier, 
+               row.names = FALSE)
+}
+
+rm(MonFichier)
+rm(MaTable)
+rm(i)
+rm(ListFile)
+```
+
+création d'une table *DEFAUTS* qui va contenir les défauts des voies
+```{r echo=FALSE, warning=FALSE}
+#Creation d'une table DEFAUTS
+#test de l'existence de la table lignes, si elle existe, on la détruit et on la recrée
+if (dbExistsTable(conn = con, "DEFAUTS") == TRUE)
+{
+  dbRemoveTable(conn = con, "DEFAUTS")
+}
+
+dbSendQuery(conn = con, statement = read_file('Scripts\\11-Create Table Defauts.sql'))
+```
+
+Insertion dans la table defaut des données
+```{r echo=FALSE, warning=FALSE}
+#Insertion dans une table DEFAUTS (en éliminant les doublons)
+dbSendQuery(conn = con, statement = read_file('Scripts\\12-Insert Into Defauts.sql'))
+
+```
+Nettoyage des données
+- suppression des données hors ile de france
+- suppression des années de pose < 1900
+- suppression des données
+- suppression des données hors fissuration (type classement)
+- suppression des données hors fissuration (type defaut)
+```{r echo=FALSE, warning=FALSE}
+#dbSendQuery(conn = con, statement = read_file('Scripts\\13-Delete Ile de France.sql'))
+#dbSendQuery(conn = con, statement = read_file('Scripts\\14-Delete Annee Pose.sql'))
+#dbSendQuery(conn = con, statement = read_file('Scripts\\15-Delete Groupe UIC.sql'))
+#dbSendQuery(conn = con, statement = read_file('Scripts\\16-Delete ID_TYPE_CLASSEMENT.sql'))
+#dbSendQuery(conn = con, statement = read_file('Scripts\\17-Delete ID_TYPE_DEFAUT.sql'))
+```
+
+
+Creation d'index
+```{r echo=FALSE, warning=FALSE}
+#Creation d'index
+dbSendQuery(conn = con, statement = read_file('Scripts\\18-Creation Index idx_ligne_pk.sql'))
+dbSendQuery(conn = con, statement = read_file('Scripts\\19-Creation Index idx_ligne_metre.sql'))
+```
+Récupération des coordonnees GPS des defauts
+```{r echo=FALSE, warning=FALSE}
+#Mise à jour des colonnes Longitude et Latitude
+dbSendQuery(conn = con, statement = read_file('Scripts\\20-MAJ Longitude Latitude.sql'))
+```
+
+
+
+création d'une colonne spatiale
+```{r echo=FALSE, warning=FALSE}
+#creation de la colonne spatiale
+dbSendQuery(conn = con, statement = read_file('Scripts\\21-AddGeometryColumn.sql'))
+```
+
+Insertion des points géometrique des defauts
+```{r echo=FALSE, warning=FALSE}
+#Mise a jour de la colonne geospatiale
+dbSendQuery(conn = con, statement = read_file('Scripts\\22-MAJ Colonne spatiale.sql'))
+```
+
+```{r echo=FALSE, warning=FALSE}
+#Suppression des tables temporaire
+dbSendQuery(conn = con, statement = read_file('Scripts\\23-Drop table.sql'))
+dbSendQuery(conn = con, statement = read_file('Scripts\\24-Drop table.sql'))
+
+```
+
+```{r echo=FALSE, warning=FALSE}
+#Creation d'une vue
+#dbSendQuery(conn = con, statement = read_file('Scripts\\25-Create View DEFAUTS_WK.sql'))
+```
+
+
+
+
+
+
+### Reduction base
+```{r echo=FALSE, warning=FALSE}
+dbSendQuery(conn = con, "VACUUM")
+```
+#Traitement des données dans R
+```{r echo=FALSE, warning=FALSE}
+#Recupération des données de la table DEFAUT
+M <- dbGetQuery(conn = con, statement = "select ID_DEFAUT,LIGNE,VOIE,METRE,ANNEE_POSE,PROFIL_RAIL,VITESSE,GROUPE_UIC,RAYON_COURBE,TYPE_CLASSEMENT,EMPLACEMENT,ANNEE_DECOUVERTE,AGE from DEFAUTS ") 
+
+#fermeture de la connexion
+dbDisconnect(con)  
+rm(con)
+rm(rs)
+rm(sqldrv)
+```
+
+Traitement de la varaible VOIE pour en déduire la variable RANG
+
+avant
+|VOIE|RANG|
+-----------
+|2700(2)|   |
+après
+|VOIE|RANG|
+-----------
+|2700| 2 |
+
+```{r echo=FALSE, warning=FALSE}
+
+M3<-M
+
+#creation du champ RANG et Voie_Bis
+#RANG => VOIE
+for (i in 1:nrow(M3)){
+  M3$RANG[i]<-substr(M3$VOIE[i],regexpr(")", M3[i,"VOIE"])[1]-1,regexpr(")", M3[i,"VOIE"])[1]-1)
+  M3$VOIE_bis[i]<-substr(M3$VOIE[i],1,regexpr(")", M3[i,"VOIE"])[1]-4)
+}                          
+
+M3[which(M3$RANG==""),"RANG"]<-1
+M3[which(M3$VOIE_bis==""),"VOIE_bis"]<-M3[which(M3$VOIE_bis==""),"VOIE"]
+rownames(M3)<-NULL
+M3$LIGNE<-as.numeric(M3$LIGNE)
+M3$RANG<-as.numeric(M3$RANG)
+M3$VOIE_bis<-as.factor(M3$VOIE_bis)
+```
+
+Traitement de la variable PROFILS RAILS
+```{r echo=FALSE, warning=FALSE}
+
+# croisement avec les correspondances du fichier Profil_rail.csv
+#chargement du fichier
+PRofil_R <- read.csv2("datasources\\Profil_rail.csv", header=TRUE, sep = ";")
+
+TAB<-sqldf("select M3.*,Profil
+      FROM M3 left join PRofil_R
+ON M3.PROFIL_RAIL=PRofil_R.PROFIL_RAIL
+      ")
+
+#TAB<-TAB[,c(1,2,21,5,6,23,8,10,12,13:17,20)]
+names(TAB)
+```
+
+```{r echo=FALSE, warning=FALSE}
+TAB<-TAB[,c("ID_DEFAUT","LIGNE","VOIE_bis","METRE","ANNEE_POSE","Profil","VITESSE","GROUPE_UIC","RAYON_COURBE","TYPE_CLASSEMENT","EMPLACEMENT","ANNEE_DECOUVERTE","AGE","RANG")]
+```
+# mail
+# clement.turbelin@upmc.fr
+transformer l'age en segment
+```{r echo=FALSE, warning=FALSE}
+# transforer l'age en segment
+TAB$AGE_bis<-cut(TAB$AGE,breaks = c(-20,10,20,30,40,50,60,70,80,90,200))
+```
+
+transformer la vitesse en segment
+```{r echo=FALSE, warning=FALSE}
+# transforer la vitesse en segment
+TAB$VITESSE_bis <- cut(TAB$VITESSE,breaks = c(-10,50,100,160,200,400))
+```
+transformer l'a vitesse en segment'ann�e de pose en segment
+```{r echo=FALSE, warning=FALSE}
+# transforer la vitesse en segment
+TAB$TR_ANNEE_POSE  <- cut(TAB$ANNEE_POSE ,breaks = c(0,1970,1980,1990,2000,3000))
+```
+
+transformer la courbe en segment
+OUI => Courbe
+NON => Ligne Droite
+```{r echo=FALSE, warning=FALSE}
+
+TAB[which(TAB$RAYON_COURBE>0 & TAB$RAYON_COURBE <1200),"TYPE_RAYON_COURBE"]<-"COURBE"
+TAB[which(is.na(TAB$TYPE_RAYON_COURBE)),"TYPE_RAYON_COURBE"]<-"ALIGNEMENT"
+
+```
+
+##fermeture de la connexion et nettoyage des variables
+```{r echo=FALSE, warning=FALSE}
+rm(PRofil_R)
+rm(M)
+rm(M3)
+rm(i)
+```
+
+Croisons avec les donn�es anciennes 
+```{r echo=FALSE, warning=FALSE}
+
+
+DONNEE_2010<-read.csv2(file.choose(), header=TRUE, sep=";") # mettre le chemin du fichier donnee_2010.csv
+TAB_ter<-sqldf("select distinct *
+FROM TAB as t0 left join DONNEE_2010 as t1 on
+               t0.ID_DEFAUT=t1.ID_DEFAUT
+               ")
+rownames(TAB_ter)<-NULL
+
+id<-unique(c(which(TAB_ter$AGE<0),which(is.na(TAB_ter$ANNEE_POSE))))
+TAB_ter$ANNEE_POSE[id]<-TAB_ter$ANRAIL[id]
+TAB_ter$AGE<-TAB_ter$ANNEE_DECOUVERTE-TAB_ter$ANNEE_POSE
+TAB$AGE_bis<-cut(TAB$AGE,breaks = c(-20,10,20,30,40,50,60,70,80,90,200))
+
+TAB1<-TAB_ter[,names(TAB)]
+TAB1<-unique(TAB1)
+```
+
+Essayons d'ajouter l'information de la circulation TGV, Transilien ou autre et rectifier l'information de rayon de courbe
+```{r echo=FALSE, warning=FALSE}
+
+DONNEE_CIRCULATION<-read.csv2(file.choose(), header=TRUE, sep=";") # Lire le fichier DONNEE_CIRCULATION.csv
+
+
+## Merger les deux tableaux
+TAB_ter<- merge(TAB1,DONNEE_CIRCULATION, by=1)
+rownames(TAB_ter)<-NULL
+```
+ La colonne Aj_TypRayon contient plus d'info que la colonne TYPE_RAYON_COURBE ==< on en complétera
+ 
+```{r echo=FALSE, warning=FALSE}
+TAB_ter$COURBE<-TAB_ter$TYPE_RAYON_COURBE
+id<-which(is.na(TAB_ter$RAYON_COURBE))
+TAB_ter$COURBE<-as.character(TAB_ter$COURBE)
+TAB_ter$COURBE[id]<-TAB_ter[id,"Aj_TypRayon"]
+TAB_ter$COURBE<-factor(TAB_ter$COURBE)
+
+
+TAB2<-TAB_ter[,c(names(TAB),"COURBE","TRAIN")]
+TAB2<-unique(TAB2)
+TAB2$COURBE[which(TAB2$COURBE=="600m < R <= 1200m" |TAB2$COURBE=="R<= 600m")]<-"COURBE"
+TAB2$COURBE[which(TAB2$COURBE=="Alignement"|TAB2$COURBE=="R > 1200m" |TAB2$COURBE=="Tracé inconnu")]<-"ALIGNEMENT"
+TAB2$COURBE[which(is.na(TAB2$COURBE))]<-"ALIGNEMENT"
+TAB2$TYPE_RAYON_COURBE<-TAB2$COURBE
+TAB2<-unique(TAB2)
+
+# Travailler la variable du groupe UIC
+
+TAB2[which(TAB2$GROUPE_UIC=="2" |TAB2$GROUPE_UIC=="3" |TAB2$GROUPE_UIC=="4"),"UIC"]<-"Forte Densite"
+TAB2[which(TAB2$GROUPE_UIC==5 |TAB2$GROUPE_UIC==6),"UIC"]<-"Moyenne Densite"
+TAB2[which(TAB2$GROUPE_UIC=="7SV" |TAB2$GROUPE_UIC=="7AV"| TAB2$GROUPE_UIC=="9AV" |
+             TAB2$GROUPE_UIC=="8AV" |TAB2$GROUPE_UIC=="9SV"| TAB2$GROUPE_UIC=="8SV" ),"UIC"]<-"Faible Densite"
+
+```
+
+Convertir ttes les variables catégoriel en factor
+```{r}
+TAB2$TYPE_CLASSEMENT=factor(TAB2$TYPE_CLASSEMENT)
+TAB2$TYPE_RAYON_COURBE=factor(TAB2$TYPE_RAYON_COURBE)
+TAB2$UIC=factor(TAB2$UIC)
+TAB2$Profil=factor(TAB2$Profil)
+TAB2$TRAIN=factor(TAB2$TRAIN)
+```
+
+# GARDER Uniquement les variables qui nous intérèssents
+```{r}
+TAB_bis<-TAB2[,c(1:4,6,7,10,11,13,14,15,16,17,19,20,"ANNEE_POSE","TR_ANNEE_POSE")]
+```
+
+ supprimons les age négatives et les NA
+```{r}
+TAB_bis<-TAB_bis[-which(is.na(TAB_bis$AGE)),]
+TAB_bis<-TAB_bis[-which(TAB_bis$AGE<0),]
+TAB_bis<-TAB_bis[-which(TAB_bis$AGE>150),]
+```
+
+ajouter la variable des O/1
+```{r}
+TAB_bis$Class_Binaire<-0
+TAB_bis$Class_Binaire[which(TAB_bis$TYPE_CLASSEMENT=="S"|
+     TAB_bis$TYPE_CLASSEMENT=="X1"|TAB_bis$TYPE_CLASSEMENT=="X2")]<-1
+```
+  on transforme TR_ANNEE_POSE en factor :
+```{r}
+TAB_bisL$TR_ANNEE_POSE<-factor(TAB_bis$TR_ANNEE_POSE)
+table(TAB_bis$TR_ANNEE_POSE, useNA="always")
+TAB_bis$TR_ANNEE_POSE<-relevel(TAB_bis$TR_ANNEE_POSE,ref="Avant 1970")
+table(TAB_bis$TR_ANNEE_POSE, useNA="always")
+```
+R�gler les modalit�s des tranches
+```{r}
+TAB_bis$AGE_bis[TAB_bis$AGE_bis=="(-20,10]"]<-"[0,10]"
+TAB_bis$VITESSE_bis[TAB_bis$VITESSE_bis=="(-10,50]"]<-"[50,10]"
+TAB_bis$TR_ANNEE_POSE[TAB_bis$TR_ANNEE_POSE=="(0,1970]"]<-"Avant 1970"
+TAB_bis$TR_ANNEE_POSE[TAB_bis$TR_ANNEE_POSE=="(2000,3000]"]<-"Apres 2000"
+
+TAB_bis$AGE_bis<-as.factor(TAB_bis$AGE_bis)
+TAB_bis$VITESSE_bis<-as.factor(TAB_bis$VITESSE_bis)
+TAB_bis$TR_ANNEE_POSE<-as.factor(TAB_bis$TR_ANNEE_POSE)
+
+```
+## Repmlacement des NA de la variable TRAIN et PRofil
+```{r}
+TAB_bis$Profil[is.na(TAB_bis$Profil)]<-"50-E6"
+TAB_bis$Profil<-factor(TAB_bis$Profil)
+
+## donc on l'a supprime afin de ne pas l'affecter � une valeur fausse : 26 NA
+TAB_bis<-TAB_bis[-which(is.na(TAB_bis$TRAIN)),]
+rownames(TAB_bis)<-NULL
+TAB_bis$TRAIN<-factor(TAB_bis$TRAIN)
+
+```
+BASE_TRAVAIL<-TAB_bis
+
+
+D�claration des bases de donn�es :
+```{r}
+# La base de donn�es c'est BASE_TRAVAIL � partir de la quelle on fait les base de donn�es mulitmodal et binaires
+
+### ------------------------commen�onc par multi Modalit�s
+BASE_TRAVAIL_Multi<-BASE_TRAVAIL[-(which(BASE_TRAVAIL$TYPE_CLASSEMENT=="E"|BASE_TRAVAIL$TYPE_CLASSEMENT=="S"|BASE_TRAVAIL$TYPE_CLASSEMENT=="NR")),]
+
+BASE_TRAVAIL_Multi$TYPE_CLASSEMENT=factor(BASE_TRAVAIL_Multi$TYPE_CLASSEMENT)
+rownames(BASE_TRAVAIL_Multi)<-NULL
+
+## construction de l'�chantillion app et tes
+
+set.seed(1444) # on fixe la graine pour la reproductibilit�
+train_O <- sample(rownames(subset(BASE_TRAVAIL_Multi,TYPE_CLASSEMENT=="O")),round(nrow(subset(BASE_TRAVAIL_Multi,TYPE_CLASSEMENT=="O"))*0.75)) # on selectionne 2/3 des lignes
+set.seed(1444) # on fixe la graine pour la reproductibilit�
+train_X1 <- sample(rownames(subset(BASE_TRAVAIL_Multi,TYPE_CLASSEMENT=="X1")),round(nrow(subset(BASE_TRAVAIL_Multi,TYPE_CLASSEMENT=="X1"))*0.75)) # on selectionne 2/3 des lignes
+set.seed(1444) # on fixe la graine pour la reproductibilit�
+train_X2 <- sample(rownames(subset(BASE_TRAVAIL_Multi,TYPE_CLASSEMENT=="X2")),round(nrow(subset(BASE_TRAVAIL_Multi,TYPE_CLASSEMENT=="X2"))*0.75)) # on selectionne 2/3 des lignes
+
+ID<-sort(as.numeric(c(train_O,train_X1,train_X2)))
+BASE_Multi_train<-BASE_TRAVAIL_Multi[ID,]
+BASE_Multi_test<-BASE_TRAVAIL_Multi[-ID,]
+
+##Penser � extraire niquement les champs dont vous avez besoin 
+
+### ------------------------ Les base binaire
+
+set.seed(1444) # on fixe la graine pour la reproductibilit�
+train_0 <- sample(rownames(subset(BASE_TRAVAIL,Class_Binaire==0)),round(nrow(subset(BASE_TRAVAIL,Class_Binaire==0))*0.75)) # 
+set.seed(1444) # on fixe la graine pour la reproductibilit�
+train_1 <- sample(rownames(subset(BASE_TRAVAIL,Class_Binaire==1)),round(nrow(subset(BASE_TRAVAIL,Class_Binaire==1))*0.75)) #  
+
+
+ID_bin<-sort(as.numeric(c(train_0,train_1)))
+BASE_Bin_train<-BASE_TRAVAIL_Multi[ID,]
+BASE_Bin_test<-BASE_TRAVAIL_Multi[-ID,]
+
+
+as.numeric(round(prop.table(table(BASE_Multi_test$TYPE_CLASSEMENT)),digits = 2))
+as.numeric(round(prop.table(table(BASE_Bin_test$Class_Binaire)),digits = 2))
+
+```
+
+
+write.csv2(BASE_TRAVAIL, file="BASE_TRAVAIL.csv")
+write.csv2(BASE_Multi_TRAIN, file="BASE_TRAVAIL_TRAIN.csv")
+write.csv2(BASE_Multi_TEST, file="BASE_TRAVAIL_TEST.csv")
+write.csv2(BASE_Bin_TRAIN, file="BASE_TRAVAIL_TRAIN.csv")
+write.csv2(BASE_Bin_TEST, file="BASE_TRAVAIL_TEST.csv")
+
+
+
+Les variables pour la mod�lisation :
+
+TYPE_CLASSEMENT
+Class_Binaire
+TYPE_RAYON_COURBE
+ANNEE_POSE
+TR_ANNEE_POSE
+AGE_bis 
+AGE
+VITESSE_bis
+VITESSE
+UIC
+TRAIN
+Profil
+
