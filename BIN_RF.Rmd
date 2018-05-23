@@ -1,0 +1,331 @@
+---
+title: "RandomForest - 2 modalites"
+number_sections: no
+output:
+  html_notebook:
+    theme: cerulean
+---
+
+Random Forest est un algorithme de machine learning qui est particulièrement efficace pour repérer des liens entre une variable à expliquer et des variables explicatives. Random Forest va classer les variables explicatives en fonction de leurs liens avec la variable à expliquer
+
+
+## INITIALISATION
+
+### Installation des packages
+
+```{r installation des packages, echo=TRUE, warning=FALSE}
+packages <- c("parallel", "pROC", "randomForest", "Epi", "doParallel", "knitr", "caret")
+if (length(setdiff(packages, rownames(installed.packages()))) > 0) {
+  install.packages(setdiff(packages, rownames(installed.packages())))  
+}
+```
+
+### Chargement des librairies
+```{r chargement des librairies, echo=TRUE, warning=FALSE}
+library(doParallel)
+library(parallel)
+#library(pROC)
+library(randomForest)
+library(Epi)
+library(knitr)
+library(caret)
+```
+
+### Parallelisation des traitements
+```{r Parallelisation des traitements, echo=TRUE, warning=FALSE}
+cluster <- makeCluster(detectCores() - 1) # On laisse un coeur pour l'OS
+```
+
+## DONNEES
+
+### Chargement des donnees
+```{r Chargement des donnees, echo=TRUE, warning=FALSE}
+TAB_ECH  <- read.csv(file = "D:/SOVA/Datasources/BASE_Bin_TRAIN.csv", header = TRUE, sep = ";")
+TAB_TEST <- read.csv(file = "D:/SOVA/Datasources/BASE_Bin_TEST.csv", header = TRUE, sep = ";")
+```
+
+### Transformation des donnees
+
+#### Filtre (Selection des variables)
+Variables a expliquer : Class_Binaire
+
+Variables explicatives : 
+
+- Profil 
+
+- Vitesse
+
+- Emplacement
+
+- Age
+
+- Type_Rayon_Courbe
+
+- Train
+
+- UIC
+
+- ANNEE POSE
+
+```{r Filtre des donnees, echo=TRUE, warning=FALSE}
+TAB_ECH  <- TAB_ECH [,c("Class_Binaire","Profil","VITESSE","EMPLACEMENT","AGE_bis","TYPE_RAYON_COURBE","TRAIN","UIC", "TR_ANNEE_POSE")]
+TAB_TEST <- TAB_TEST[,c("Class_Binaire","Profil","VITESSE","EMPLACEMENT","AGE_bis","TYPE_RAYON_COURBE","TRAIN","UIC", "TR_ANNEE_POSE")]
+```
+
+#### Factorisation
+```{r Factorisation, echo=TRUE, warning=FALSE}
+TAB_ECH$Class_Binaire  <- as.factor(TAB_ECH$Class_Binaire)
+TAB_ECH$VITESSE        <- as.factor(TAB_ECH$VITESSE)
+TAB_ECH$AGE_bis        <- as.factor(TAB_ECH$AGE_bis)
+TAB_ECH$TR_ANNEE_POSE  <- as.factor(TAB_ECH$TR_ANNEE_POSE)
+
+TAB_TEST$Class_Binaire <- as.factor(TAB_TEST$Class_Binaire)
+TAB_TEST$VITESSE       <- as.factor(TAB_TEST$VITESSE)
+TAB_TEST$AGE_bis       <- as.factor(TAB_TEST$AGE_bis)
+TAB_TEST$TR_ANNEE_POSE <- as.factor(TAB_TEST$TR_ANNEE_POSE)
+```
+
+## MODELISATION
+### 1^er^ modele avec le parametrage par defaut
+
+Parametre | Signification | Valeur
+----|----|----
+ntree | le nombre d'arbres | 500
+mtry | le nombre de variables testées à chaque division | 2
+
+
+```{r Modelisation par defaut, echo=TRUE, warning=FALSE}
+registerDoParallel(cluster)
+
+set.seed(1971)
+BIN_RF_01 <- randomForest(Class_Binaire ~ .,
+                      data = TAB_ECH)
+
+#Prediction avec recupération des valeurs
+PRED_BIN_RF <- predict(BIN_RF_01, TAB_TEST)
+#Prediction avec recupération des probabilites
+PRED_BIN_RF.prob <- predict(BIN_RF_01, TAB_TEST, type="prob")
+```
+
+#### Resultat du 1^er^ modele
+
+##### Accuracy
+Precision du modele : `r (1 - BIN_RF_01$err.rate[which.min(BIN_RF_01$err.rate[,1])])*100`
+```{r Resulat 1er modele - Probabilite, echo=TRUE, warning=FALSE}
+(1 - BIN_RF_01$err.rate[which.min(BIN_RF_01$err.rate[,1])])*100
+```
+
+##### Courbe ROC
+```{r Resulat 1er modele - Courbe ROC, echo=TRUE, warning=FALSE}
+#Affichage courbe ROC
+m = Epi::ROC(test = PRED_BIN_RF.prob[,2],
+        stat = TAB_TEST$Class_Binaire,
+        data = TAB_TEST,
+        plot = "ROC",
+        MI = FALSE,
+        grid = FALSE)
+```
+
+##### Matrice de confusion
+```{r Resulat 1er modele - Matrice de confusion, echo=TRUE, warning=FALSE}
+# ##Matrice de confusion
+#table(PRED_BIN_RF, TAB_TEST$Class_Binaire)
+BIN_RF_01$confusion
+```
+
+##### Importance des variables
+```{r Resulat 1er modele - Importance des variables, echo=TRUE, warning=FALSE}
+#Importance des variables 
+kable(BIN_RF_01$importance[order(BIN_RF_01$importance[, 1], decreasing = TRUE), ], "html")
+
+varImpPlot(BIN_RF_01, n.var = 10, main = "Importance des variables", pch = "X", cex = 0.75, color = "navy")
+
+#hist(BIN_RF_01$oob.times)
+
+```
+
+### Optimisation : recherche du nombre d'arbre optimum
+
+```{r Optimisation - Nombre d arbre, echo=TRUE, warning=FALSE}
+
+#On relance le modele en faisant varié le nombre d arbre et on regarde quand le nombre d'erreur se stabilise
+
+for(nbtree in c(500, 1000, 1500, 2000)){
+  registerDoParallel(cluster)
+  set.seed(1971)
+  BIN_RF_02 <- randomForest(Class_Binaire ~ .,
+                            data = TAB_ECH,
+                            ntree =  nbtree,
+                            mtry = 6)
+  plot(BIN_RF_02$err.rate[, 1], type = "l", xlab = "nombre d'arbres", ylab = "out of bag (OOB) error rate")
+  abline(h=0.262, col = "lightgray", lty = 3)
+  abline(h=0.265, col = "lightgray", lty = 3)
+  }
+```
+Entre 300 et 400 arbres, on obtient le taux d'erreur minimal.  
+On va choisir 350
+
+### Optimisation : le nombre de variables testées à chaque division
+
+Utilisation de la fonction tuneRF pour determiner le mtry optimum
+
+parametre | signification | valeur
+----------|---------------|--------
+ntreeTry | nombre d arbre | 350
+mtryStart | valeur de de depart | 2
+stepFactor | valeur d augmentation a chaque tour | 1.5
+improve | on arrete si l erreur n a pas diminue de  | 0.00001
+trace | affiche la progression | TRUE
+
+
+```{r Optimisation 01 - le nombre de variables testées à chaque division, echo=TRUE, warning=FALSE}
+
+#tuneRF : methode qui permet de determiner le meilleur mtry
+mtry <- tuneRF(x = TAB_TEST[-1],
+               y = TAB_TEST$Class_Binaire,
+               ntreeTry = 350,    #Nombre d arbre
+               mtryStart = 2,     #On commence avec 2
+               stepFactor = 1.5,  #a chaque tour mtry est augmente de 1.5
+               improve = 0.00001,    #a chaque tour si l'erreur ne s'est pas diminué de 0.00001, on s arrete
+               trace = TRUE      #affiche la progression
+               )
+```
+
+#### mtry trouve
+```{r Optimisation 02 - le nombre de variables testees a chaque division, echo=TRUE, warning=FALSE}
+
+plot(x = mtry[,1], 
+     y = mtry[,2], 
+     type = "b",
+     xlab = "mtry",
+     ylab = "OBBError",
+     main = "Determination du mtry optimum")
+abline(h = mtry[,2][which.min(mtry[,2])],
+       col = "red",
+       lty = 1)
+
+best.m <- mtry[mtry[, 2] == min(mtry[, 2]), 1]
+print(paste0("Le meilleur mtry est : ",best.m))
+```
+
+### Modele avec les parametres optimaux
+```{r Optimisation 03, echo=TRUE, warning=FALSE}
+
+BIN_RF_03 <- randomForest(Class_Binaire ~ .,
+                      data = TAB_ECH,
+                      ntree = 350,
+                      mtry = 6)
+
+#Prediction avec recuperation des valeurs
+PRED_BIN_RF_03 <- predict(BIN_RF_03, TAB_TEST)
+#Prediction avec recuperation des probabilites
+PRED_BIN_RF_03.prob <- predict(BIN_RF_03, TAB_TEST, type="prob")
+```
+
+#### Accuracy
+```{r Accuracy, echo=TRUE, warning=FALSE}
+(1 - BIN_RF_03$err.rate[which.min(BIN_RF_03$err.rate[,1])])*100
+```
+
+
+
+#### Affichage courbe ROC
+```{r Optimisation 04, echo=TRUE, warning=FALSE}
+m = Epi::ROC(test = PRED_BIN_RF_03.prob[,2],
+        stat = TAB_TEST$Class_Binaire,
+        data = TAB_TEST,
+        plot = "ROC",
+        MI = FALSE,
+        grid = FALSE)
+```
+
+```{r}
+importanceOrder<-order(-BIN_RF_03$importance)
+names<-rownames(BIN_RF_03$importance)[importanceOrder][1:6]
+par(mfrow=c(3, 2), xpd=NA)
+for (name in names) {partialPlot(BIN_RF_03, TAB_ECH, eval(name), main=name, xlab=name)}
+```
+
+
+
+### Modele avec le package Caret
+
+```{r Caret - modele, echo=TRUE, warning=FALSE}
+
+set.seed(1971)
+control <- trainControl(method="repeatedcv", number=10, repeats=3, search="grid")
+metric <- "Accuracy"
+tunegrid <- expand.grid(.mtry=c(15:35))
+
+doParallel::registerDoParallel(cluster)
+
+BIN_RF_04 <- train(Class_Binaire~.,
+                       data=TAB_ECH, 
+                       method="rf", 
+                       metric=metric, 
+                       tuneGrid=tunegrid, 
+                       trControl=control)
+
+#Prediction avec recupération des valeurs
+PRED_BIN_RF_04 <- predict(BIN_RF_04, TAB_TEST)
+#Prediction avec recupération des probabilites
+PRED_BIN_RF_04.prob <- predict(BIN_RF_04, TAB_TEST, type="prob")
+
+
+```
+
+#### Meilleur mtry trouve
+```{r Caret - resultat 01, echo=TRUE, warning=FALSE}
+plot(BIN_RF_04)
+BIN_RF_04$bestTune
+```
+
+```{r Caret - resultat 02, echo=TRUE, warning=FALSE}
+BIN_RF_04$finalModel
+```
+
+
+#### Importance des variables
+```{r Caret - resultat 03, echo=TRUE, warning=FALSE}
+varImpPlot(BIN_RF_04$finalModel, 
+           n.var = 15, 
+           cex = 0.75,
+           pch = "X",
+           color = "navy",
+           main = "Importance des variables")
+#autre visualisation
+#plot(varImp(BIN_REF_04), top = 15)
+
+varImp(BIN_RF_04)
+```
+
+```{r Caret - Courbe ROC, echo=TRUE, warning=FALSE}
+m = Epi::ROC(test = PRED_BIN_RF_04.prob[,2],
+        stat = TAB_TEST$Class_Binaire,
+        data = TAB_TEST,
+        plot = "ROC",
+        MI = FALSE,
+        grid = FALSE,
+        main = "Courbe ROC")
+```
+
+
+
+
+```{r}
+
+for (threshold in c(0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9)){
+Pred = PRED_BIN_RF_04.prob
+Pred[Pred < threshold]=0
+Pred[Pred > threshold]=1
+
+Epi::ROC(test = Pred[,2],
+        stat = TAB_TEST$Class_Binaire,
+        data = TAB_TEST,
+        plot = "ROC",
+        MI = FALSE,
+        main = paste0("threshold : ", threshold))
+}
+
+```
+
