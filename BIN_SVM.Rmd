@@ -1,0 +1,179 @@
+---
+title: "BIN_SVM"
+output:
+  rmarkdown::html_document:
+    theme: cerulean
+    number_sections: no
+    toc: no
+    toc_depth: 5
+    toc_float: true
+---
+Les SVM, machines à vecteurs de support, sont un ensemble de techniques d'apprentissage supervisé destinées à résoudre des problèmes de discrimination et de régression. Les SVM sont une généralisation des classifieurs linéaires.
+Ces classificateurs reposent sur deux idées clés, qui permettent de traiter des problèmes de discrimination non linéaire, et de reformuler le problème de classement comme un problème d'optimisation quadratique.
+La première idée clé est la notion de marge maximale. La marge est la distance entre la frontière de séparation et les échantillons les plus proches. Ces derniers sont appelés vecteurs supports. Dans les SVM, la frontière de séparation est choisie comme celle qui maximise la marge.
+
+# Installation des packages et Chargement des librairies
+```{r}
+# install.packages("e1071")
+library(e1071) # Pour le SVM
+
+# install.packages("pROC")
+library(pROC) # Pour le calcul de l'AUC
+
+#install.packages("Epi")
+library(Epi) # Pour la courbe ROC
+```
+
+
+# Chargement des donnees
+
+```{r}
+setwd("C:/Users/sophie/Documents/Projet_SNCF")
+TAB_bis <- read.csv2("TAB_bis.csv", header=TRUE, sep=";")
+BASE_Multi_TRAIN <- read.csv2("BASE_Multi_TRAIN.csv",sep=";",header=T)
+BASE_Multi_TEST  <- read.csv2("BASE_Multi_TEST.csv",sep=";",header=T)
+
+X = BASE_Multi_TRAIN[,c("Class_Binaire","Profil","VITESSE","AGE","TYPE_RAYON_COURBE","TRAIN","UIC")]
+X$Class_Binaire <- as.factor(X$Class_Binaire)
+```
+
+# création de la fonction cross validation
+
+```{r}
+rownames(X)<-NULL
+X_O<-X[which(X$Class_Binaire=="0"),]
+X_1<-X[which(X$Class_Binaire=="1"),]
+
+rownames(X_O)<-NULL
+rownames(X_1)<-NULL
+
+CROSS<-function(X){
+  
+  set.seed(1444)
+  ID<-sample(1:nrow(X),nrow(X))
+  a<- seq(1,nrow(X),round((nrow(X)/10))+1)
+  X$fold<-10
+  
+  for (i in 1:9){
+    X$fold[ID[a[i]:(a[i+1]-1)]]<-i
+    }
+  
+  return(X)
+  
+}
+
+X_O<-CROSS(X_O)
+X_1<-CROSS(X_1)
+
+X_fin<-rbind(X_O,X_1)
+X_fin<-X_fin[order(X_fin$fold),]
+
+rownames(X_fin)<-NULL
+rownames(X_fin)<-NULL
+
+```
+
+# fonction performance en 10fold contenant modele SVM et prediction et retourne le taux d'erreur
+```{r}
+performances <- c()
+
+# Création de la boucles sur les 10 folders
+
+for (i in 1:10){
+    # Train qui contient 9 blocs
+    training_set <- X_fin[X_fin$fold != i,]
+    # test qui contient 1 bloc
+    testing_set <-  X_fin[X_fin$fold == i,]
+  
+  ##  model
+  model<- svm(Class_Binaire ~ ., data = training_set) 
+  
+  ## Test model
+  # summary(model)
+  
+  # Predict 
+  predicted <- predict(model, testing_set)
+  
+  ## changer les proba en indicateurs
+  model_prob<- svm(Class_Binaire ~ ., data = training_set,probability = TRUE) 
+  predicted_prob <- predict(model_prob, testing_set, probability=TRUE)
+  
+  ## la matrice de confusion
+  confmat = table(predicted,testing_set$Class_Binaire)
+  
+  # K<-xtabs(....)
+  
+  K <- xtabs(~predicted+testing_set$Class_Binaire)
+  ftable(K)
+  
+  # calcule de l'erreur
+  
+  confmat = table(predicted,testing_set$Class_Binaire)
+  ERREUR_MOD<-1-sum(diag(confmat))/sum(confmat)
+  
+  # Ajouter à la liste ->> à la fin on obtient 10 : on les moyenne
+  
+  performances[i] <- ERREUR_MOD
+}
+
+c('ERREUR' = mean(performances))
+```
+
+ERREUR 
+0.3098 
+```{r}
+confmat
+confmat_prob = table(predicted_prob,testing_set$Class_Binaire)
+```
+confmat matrice de confusion :
+predicted   0   1
+        0 573 258
+        1   8  24
+        
+        
+        confmat_prob :
+predicted_prob   0   1
+             0 570 253
+             1  11  29
+
+```{r}
+
+# Matrice de confusion associÃ© au modÃ¨le
+confusion <- addmargins(confmat_prob)
+
+
+# Calcul de la moyenne des bien predits sur le train :  
+perf <- (mean(predicted_prob==testing_set$Class_Binaire) )
+# Calcul du taux de Faux positifs (TFP) : 
+TFP <- confusion[2,1]/confusion[3,1]
+# Calcul du taux de Faux negatifs (TFN) : 
+TFN <- confusion[1,2]/confusion[3,2]
+
+# Affichage :
+  confusion
+  print(c('Performance' = perf))
+  print(c('TFP' = TFP))
+  print(c('TFN' = TFN))
+```
+              
+predicted_prob   0   1 Sum
+           0   570 253 823
+           1    11  29  40
+           Sum 581 282 863
+           
+Performance 
+  0.6940904   
+
+       TFP 
+0.01893287   
+
+TFN 
+0.8971631 
+           
+### Courbe ROC sur le TEST :
+```{r}
+Epi::ROC(test = predicted_prob,
+	stat = testing_set$Class_Binaire,
+	data = testing_set, plot = "ROC", MI=F)
+
+```

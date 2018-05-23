@@ -1,0 +1,128 @@
+---
+title: "MULTI_SVM"
+output:
+  rmarkdown::html_document:
+    theme: cerulean
+    number_sections: no
+    toc: no
+    toc_depth: 5
+    toc_float: true
+---
+Les SVM, machines à vecteurs de support, sont un ensemble de techniques d'apprentissage supervisé destinées à résoudre des problèmes de discrimination et de régression. Les SVM sont une généralisation des classifieurs linéaires.
+Ces classificateurs reposent sur deux idées clés, qui permettent de traiter des problèmes de discrimination non linéaire, et de reformuler le problème de classement comme un problème d'optimisation quadratique.
+La première idée clé est la notion de marge maximale. La marge est la distance entre la frontière de séparation et les échantillons les plus proches. Ces derniers sont appelés vecteurs supports. Dans les SVM, la frontière de séparation est choisie comme celle qui maximise la marge.
+
+# Installation des packages et Chargement des librairies
+```{r}
+# install.packages("e1071")
+library(e1071) # Pour le SVM
+
+# install.packages("pROC")
+library(pROC) # Pour le calcul de l'AUC
+
+#install.packages("Epi")
+library(Epi) # Pour la courbe ROC
+```
+
+
+# Chargement des donnees
+
+```{r}
+setwd("C:/Users/sophie/Documents/Projet_SNCF")
+TAB_bis <- read.csv2("TAB_bis.csv", header=TRUE, sep=";")
+BASE_Multi_TRAIN <- read.csv2("BASE_Multi_TRAIN.csv",sep=";",header=T)
+BASE_Multi_TEST  <- read.csv2("BASE_Multi_TEST.csv",sep=";",header=T)
+
+X = BASE_Multi_TRAIN[,c("TYPE_CLASSEMENT","Profil","VITESSE","AGE","TYPE_RAYON_COURBE","TRAIN","UIC")]
+
+```
+
+# création de la fonction cross validation
+
+```{r}
+rownames(X)<-NULL
+
+X_O<-X[which(X$TYPE_CLASSEMENT=="O"),]
+X_1<-X[which(X$TYPE_CLASSEMENT=="X1"),]
+X_2<-X[which(X$TYPE_CLASSEMENT=="X2"),]
+
+rownames(X_O)<-NULL
+rownames(X_1)<-NULL
+rownames(X_2)<-NULL
+
+CROSS<-function(X){
+  set.seed(1444)
+  ID<-sample(1:nrow(X),nrow(X))
+  a<- seq(1,nrow(X),round((nrow(X)/10))+1)
+  X$fold<-10
+  
+  for (i in 1:9){
+    X$fold[ID[a[i]:(a[i+1]-1)]]<-i
+  }
+  
+  return(X)
+  
+}
+
+X_O<-CROSS(X_O)
+X_1<-CROSS(X_1)
+X_2<-CROSS(X_2)
+
+X_fin<-rbind(X_O,X_1,X_2)
+X_fin<-X_fin[order(X_fin$fold),]
+
+rownames(X_fin)<-NULL
+
+```
+
+# fonction performance en 10fold contenant modele SVM et prediction et retourne le taux d'erreur
+```{r}
+performances <- c()
+
+# Création de la boucles sur les 10 folders
+
+for (i in 1:10){
+  
+    # Train qui contient 9 blocs
+  
+  training_set <- X_fin[X_fin$fold != i,]
+  
+  # test qui contient 1 bloc
+  
+  testing_set <-  X_fin[X_fin$fold == i,]
+  
+  ##  model
+  model<- svm(TYPE_CLASSEMENT ~ ., data = training_set,scale = TRUE) 
+    
+  
+    ## Test model
+     # summary(model)
+    
+    # Predict 
+    predicted <- predict(model, testing_set)
+  
+  ## changer les proba en indicateurs
+  
+  ## la matrice de confusion
+    #table(predict(model,training_set), training_set$TYPE_CLASSEMENT)
+      confmat = table(predicted,testing_set$TYPE_CLASSEMENT)
+  
+  # K<-xtabs(....)
+  
+      K <- xtabs(~predicted+testing_set$TYPE_CLASSEMENT)
+      ftable(K)
+  
+  # calcule de l'erreur
+  
+  ERREUR_MOD<-1-sum(diag(confmat))/sum(confmat)
+  ERREUR_MOD
+  
+  # Ajouter à la liste ->> à la fin on obtient 10 erreurs que l'on moyenne
+  
+  performances[i] <- ERREUR_MOD
+ 
+}
+
+c('ERREUR' = mean(performances))
+```
+
