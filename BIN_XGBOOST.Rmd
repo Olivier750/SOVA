@@ -1,0 +1,364 @@
+---
+title: "XGBoost - 2 modalites"
+number_sections: no
+output:
+  html_notebook:
+    theme: cerulean
+  html_document:
+    df_print: paged
+code_folding: hide
+---
+
+
+XGBoost : extreme gradient boosting
+
+Le BOOSTING est une technique ensembliste qui consiste à agréger des classifieurs (modèles) élaborés séquentiellement sur un échantillon d'apprentissage dont les poids des individus sont corrigés au fur et à mesure. 
+Les classifieurs sont pondérés selon leurs performances
+
+xgboost introduit une implémentation parallèle, rendant le calcul possible sur de très grandes bases (ainsi que d'autres modèles sous-jacents que les arbres, l'échantillonnage des variables dans la construction des arbres)
+
+## INITIALISATION
+
+### Installation des packages
+```{r installation des packages, echo=TRUE, warning=FALSE}
+packages <- c("caret", "xgboost", "doSNOW", "parallel", "e1071", "plyr","pROC","Epi","doParallel")
+if (length(setdiff(packages, rownames(installed.packages()))) > 0) {
+  install.packages(setdiff(packages, rownames(installed.packages())))  
+}
+```
+
+
+### Chargement des librairies
+```{r chargement des librairies, echo=TRUE, warning=FALSE}
+library(caret)
+library(xgboost)
+library(doSNOW)
+library(parallel)
+library(e1071)
+library(plyr)
+library(pROC)
+library(Epi)
+library(doParallel)
+```
+
+
+### Parallelisation des traitements
+```{r Parallelisation des traitements, echo=TRUE, warning=FALSE}
+cluster <- makeCluster(detectCores() - 1) # On laisse un coeur pour l'OS
+```
+
+## DONNEES
+
+### Chargement des donnees
+```{r Chargement des donnees, echo=TRUE, warning=FALSE}
+TAB_ECH  <- read.csv(file = "D:/SOVA/Datasources/BASE_Bin_TRAIN.csv", header = TRUE, sep = ";")
+TAB_TEST <- read.csv(file = "D:/SOVA/Datasources/BASE_Bin_TEST.csv", header = TRUE, sep = ";")
+```
+
+### Transformation des donnees
+
+#### Filtre (Selection des variables)
+Variables a expliquer : Class_Binaire
+
+Variables explicatives : 
+
+- Profil 
+
+- Vitesse
+
+- Emplacement
+
+- Age
+
+- Type_Rayon_Courbe
+
+- Train
+
+- UIC
+
+```{r Filtre des donnees, echo=TRUE, warning=FALSE}
+TAB_ECH  <- TAB_ECH [,c("Class_Binaire","Profil","VITESSE","EMPLACEMENT","AGE_bis","TYPE_RAYON_COURBE","TRAIN","UIC")]
+TAB_TEST <- TAB_TEST[,c("Class_Binaire","Profil","VITESSE","EMPLACEMENT","AGE_bis","TYPE_RAYON_COURBE","TRAIN","UIC")]
+```
+
+#### Transformation en level
+XGBoost ne fonctionne que sur des vecteurs numeriques
+
+```{r level, echo=TRUE, warning=FALSE}
+levels(TAB_ECH$Profil)            <- seq(1,length(levels(TAB_ECH$Profil)),length.out = length(levels(TAB_ECH$Profil)))
+levels(TAB_ECH$EMPLACEMENT)       <- seq(1,length(levels(TAB_ECH$EMPLACEMENT)),length.out = length(levels(TAB_ECH$EMPLACEMENT)))
+levels(TAB_ECH$AGE_bis)           <- seq(1,length(levels(TAB_ECH$AGE_bis)),length.out = length(levels(TAB_ECH$AGE_bis)))
+levels(TAB_ECH$TYPE_RAYON_COURBE) <- seq(1,length(levels(TAB_ECH$TYPE_RAYON_COURBE)),length.out = length(levels(TAB_ECH$TYPE_RAYON_COURBE)))
+levels(TAB_ECH$TRAIN)             <- seq(1,length(levels(TAB_ECH$TRAIN)),length.out = length(levels(TAB_ECH$TRAIN)))
+levels(TAB_ECH$UIC)               <- seq(1,length(levels(TAB_ECH$UIC)),length.out = length(levels(TAB_ECH$UIC)))
+
+levels(TAB_TEST$Profil)           <- seq(1,length(levels(TAB_TEST$Profil)),length.out = length(levels(TAB_TEST$Profil)))
+levels(TAB_TEST$EMPLACEMENT)      <- seq(1,length(levels(TAB_TEST$EMPLACEMENT)),length.out = length(levels(TAB_TEST$EMPLACEMENT)))
+levels(TAB_TEST$AGE_bis)          <- seq(1,length(levels(TAB_TEST$AGE_bis)),length.out = length(levels(TAB_TEST$AGE_bis)))
+levels(TAB_TEST$TYPE_RAYON_COURBE)<- seq(1,length(levels(TAB_TEST$TYPE_RAYON_COURBE)),length.out = length(levels(TAB_TEST$TYPE_RAYON_COURBE)))
+levels(TAB_TEST$TRAIN)            <- seq(1,length(levels(TAB_TEST$TRAIN)),length.out = length(levels(TAB_TEST$TRAIN)))
+levels(TAB_TEST$UIC)              <- seq(1,length(levels(TAB_TEST$UIC)),length.out = length(levels(TAB_TEST$UIC)))
+```
+
+#### Factorisation
+```{r Factorisation, echo=TRUE, warning=FALSE}
+TAB_ECH$Class_Binaire <- as.factor(TAB_ECH$Class_Binaire)
+TAB_ECH$VITESSE       <- as.factor(TAB_ECH$VITESSE)
+TAB_ECH$AGE_bis       <- as.factor(TAB_ECH$AGE_bis)
+
+TAB_TEST$Class_Binaire <- as.factor(TAB_TEST$Class_Binaire)
+TAB_TEST$VITESSE       <- as.factor(TAB_TEST$VITESSE)
+TAB_TEST$AGE_bis       <- as.factor(TAB_TEST$AGE_bis)
+```
+
+
+## MODELISATION
+
+### 1^er^ modele avec le parametrage par defaut
+Parametre | signification | valeur
+---|------------|--
+eta | shrinkage (correction repercutee a chaque arbre) | 0.3
+max_depth | profondeur des arbres | 6
+min_child_weight | critères pour créer un nouvel enfant dans l'arbre | 1
+colsample_bytree |  | 0.8
+Gamma | Pertes minimale requise pour creer une autre partition | 0
+subsample | Sous echantillon | 1
+
+```{r Modelisation 01, echo=TRUE, warning=FALSE}
+doParallel::registerDoParallel(cluster)
+
+set.seed(1971)
+BIN_XGBOOST_01 <- caret::train(Class_Binaire~., 
+                        data = TAB_ECH,
+                        method = "xgbTree")
+
+
+PRED_BIN_XGBOOST_01 <- predict(BIN_XGBOOST_01, TAB_TEST)
+PRED_BIN_XGBOOST_01.prob <- predict(BIN_XGBOOST_01, TAB_TEST, type="prob")
+Resultat.XG01 <- caret::confusionMatrix(PRED_BIN_XGBOOST_01, TAB_TEST$Class_Binaire)
+```
+
+#### Résultat du 1^er^ modele
+
+Statistiques | Valeur
+---|---
+Accuracy | 0.7258
+Sensitivity | 0.9249
+Specificity | 0.3244
+
+
+Matrice de confusion  | 0 | 1
+-----|-|-
+**0**|1811|656
+**1**|147|315
+
+******
+******
+
+### 2^eme^ modele avec recherche des meilleurs parametres
+
+On lui passe  une  liste de  paramètres  avec  les  valeurs  à  tester,  il  se  charge  de trouver  la  meilleure combinaison en validation croisée
+
+Parametre | valeur
+---|---
+eta              | 0.01,  0.2,  0.3
+nrounds          | 100,  300,  3000
+max_depth        | 18,  20,  25
+min_child_weight | 5,  10,  15
+colsample_bytree | 0.75,  1,  1.5
+Gamma            | 0.5,  1
+subsample        | 0.5
+
+
+```{r Modelisation 02, echo=TRUE, warning=FALSE}
+registerDoParallel(cluster)
+train.control.02 <- trainControl(method = "repeatedcv",
+                                 number = 5,
+                                 repeats = 1)
+
+tune.grid.02 <- expand.grid(eta = c(0.01, 0.1, 0.3),
+                            nrounds = c(50, 100, 150),
+                            max_depth = c(20, 25, 30),
+                            min_child_weight = c(1, 5, 10),
+                            colsample_bytree = c(0.75, 1, 1.25),
+                            gamma = c(0.25, 0.5, 1),
+                            subsample = 0.25, 0.5, 1)
+
+set.seed(1971)
+BIN_XGBOOST_02 <- train(Class_Binaire~., 
+                        data = TAB_ECH,
+                        method = "xgbTree",
+                        tuneGrid = tune.grid.02,
+                        trControl = train.control.02)
+
+PRED_BIN_XGBOOST_02 <- predict(BIN_XGBOOST_02, TAB_TEST)
+PRED_BIN_XGBOOST_02.prob <- predict(BIN_XGBOOST_02, TAB_TEST, type="prob")
+Resultat.XG02 <- confusionMatrix(PRED_BIN_XGBOOST_02, TAB_TEST$Class_Binaire)
+```
+
+#### Résultat du 2^eme^ modele
+
+Statistiques | Valeur
+---|---
+Accuracy | **0.7293**
+Sensitivity | 0.8994
+Specificity | 0.3862
+
+
+Matrice de confusion  | 0 | 1
+-----|-|-
+**0**|1761|595
+**1**|197|375
+
+******
+******
+
+### Avec les paramètres optimises
+
+Parametre | valeur
+---|---
+eta              | 0.1
+nrounds          | 100
+max_depth        | 25
+min_child_weight | 5
+colsample_bytree | 1
+Gamma            | 0.5
+subsample        | 0.5
+
+```{r Modelisation 03, echo=TRUE, warning=FALSE}
+registerDoParallel(cluster)
+train.control.03 <- trainControl(method = "repeatedcv",
+                                 number = 10,
+                                 repeats = 50)
+
+tune.grid.03 <- expand.grid(eta = 0.1,
+                            nrounds = 100,
+                            max_depth = 25, 
+                            min_child_weight = 5,
+                            colsample_bytree = 1,
+                            gamma = 0.5,
+                            subsample = 0.5)
+
+set.seed(1971)
+BIN_XGBOOST_03 <- train(Class_Binaire~., 
+                        data = TAB_ECH,
+                        method = "xgbTree",
+                        tuneGrid = tune.grid.03,
+                        trControl = train.control.03)
+
+PRED_BIN_XGBOOST_03 <- predict(BIN_XGBOOST_03, TAB_TEST)
+PRED_BIN_XGBOOST_03.prob <- predict(BIN_XGBOOST_03, TAB_TEST, type="prob")
+Resultat.XG03 <- confusionMatrix(PRED_BIN_XGBOOST_03, TAB_TEST$Class_Binaire)
+```
+
+#### Résultat
+
+Statistiques | Valeur
+---|---
+Accuracy | **0.7293**
+Sensitivity | 0.9060
+Specificity | 0.3728
+
+
+Matrice de confusion  | 0 | 1
+-----|-|-
+**0**|1774|609
+**1**|184|362
+
+******
+******
+
+```{r Stop cluster, echo=TRUE, warning=FALSE}
+stopCluster(cluster)
+```
+
+
+## Comparaison des resultats
+
+### % de reussite
+```{r Modelisation 02 - Resultat, echo=TRUE, warning=FALSE}
+#Resultat 01
+print(paste0("Resultat XG01              : ", Resultat.XG01$overall[1]*100))
+#Resultat 02
+print(paste0("Resultat XG02              : ", Resultat.XG02$overall[1]*100))
+#Resultat 03
+print(paste0("Resultat XG03              : ", Resultat.XG03$overall[1]*100))
+```
+
+### Courbe ROC (avec threshold = 0.5)
+
+```{r,echo=FALSE, fig.width=100}
+
+par(mfrow = c(1, 3))
+BIN_XGBOOST_ROC_01 <- Epi::ROC(test = PRED_BIN_XGBOOST_01.prob[,2],
+        stat = TAB_TEST$Class_Binaire,
+        data = TAB_TEST,
+        plot = "ROC",
+        MI = FALSE)
+
+BIN_XGBOOST_ROC_02 <- Epi::ROC(test = PRED_BIN_XGBOOST_02.prob[,2],
+        stat = TAB_TEST$Class_Binaire,
+        data = TAB_TEST,
+        plot = "ROC",
+        MI = FALSE)
+
+BIN_XGBOOST_ROC_03 <- Epi::ROC(test = PRED_BIN_XGBOOST_03.prob[,2],
+        stat = TAB_TEST$Class_Binaire,
+        data = TAB_TEST,
+        plot = "ROC",
+        MI = FALSE)
+
+
+```
+
+### Courbe ROC (en faisant varier le threshold)
+
+#### Modele 1
+```{r R Courbe ROC 1, echo=TRUE, warning=FALSE}
+for (threshold in c(0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9)){
+Pred = PRED_BIN_XGBOOST_01.prob
+Pred[Pred < threshold]=0
+Pred[Pred > threshold]=1
+
+Epi::ROC(test = Pred[,2],
+        stat = TAB_TEST$Class_Binaire,
+        data = TAB_TEST,
+        plot = "ROC",
+        MI = FALSE,
+        main = paste0("threshold : ", threshold))
+}
+```
+#### Modele 2
+```{r R Courbe ROC 2, echo=TRUE, warning=FALSE}
+for (threshold in c(0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9)){
+Pred = PRED_BIN_XGBOOST_02.prob
+Pred[Pred < threshold]=0
+Pred[Pred > threshold]=1
+
+Epi::ROC(test = Pred[,2],
+        stat = TAB_TEST$Class_Binaire,
+        data = TAB_TEST,
+        plot = "ROC",
+        MI = FALSE,
+        main = paste0("threshold : ", threshold))
+}
+```
+
+
+
+
+#### Modele 3
+```{r R Courbe ROC 3, echo=TRUE, warning=FALSE}
+for (threshold in c(0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9)){
+Pred = PRED_BIN_XGBOOST_03.prob
+Pred[Pred < threshold]=0
+Pred[Pred > threshold]=1
+
+Epi::ROC(test = Pred[,2],
+        stat = TAB_TEST$Class_Binaire,
+        data = TAB_TEST,
+        plot = "ROC",
+        MI = FALSE,
+        main = paste0("threshold : ", threshold))
+}
+```
