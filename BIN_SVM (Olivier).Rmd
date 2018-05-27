@@ -1,0 +1,239 @@
+---
+title: "SVM - 2 modalites"
+number_sections: no
+output:
+  html_notebook:
+    theme: cerulean
+---
+
+
+## INITIALISATION
+
+### Installation des packages
+
+```{r installation des packages, echo=TRUE, warning=FALSE}
+packages <- c("parallel", "pROC", "randomForest", "Epi", "doParallel", "knitr", "caret", "e1071", "kernlab", "ROCR")
+if (length(setdiff(packages, rownames(installed.packages()))) > 0) {
+  install.packages(setdiff(packages, rownames(installed.packages())))  
+}
+```
+
+### Chargement des librairies
+```{r chargement des librairies, echo=TRUE, warning=FALSE}
+library(parallel)
+library(doParallel)
+library(e1071)
+library(caret)
+#library(ROCR)
+#library(pROC)
+#library(Epi)
+#library(knitr)
+#library(kernlab)
+```
+
+### Parallelisation des traitements
+```{r Parallelisation des traitements, echo=TRUE, warning=FALSE}
+cluster <- parallel::makeCluster(detectCores() - 1) # On laisse un coeur pour l'OS
+```
+
+## DONNEES
+
+### Chargement des donnees
+```{r Chargement des donnees, echo=TRUE, warning=FALSE}
+TAB_ECH  <- read.csv(file = "D:/SOVA/Datasources/BASE_Bin_TRAIN.csv", header = TRUE, sep = ";")
+TAB_TEST <- read.csv(file = "D:/SOVA/Datasources/BASE_Bin_TEST.csv", header = TRUE, sep = ";")
+```
+
+### Transformation des donnees
+
+#### Filtre (Selection des variables)
+Variables a expliquer : Class_Binaire
+
+Variables explicatives : 
+
+- Profil 
+
+- Vitesse
+
+- Emplacement
+
+- Age
+
+- Type_Rayon_Courbe
+
+- Train
+
+- UIC
+
+- ANNEE POSE
+
+```{r Filtre des donnees, echo=TRUE, warning=FALSE}
+TAB_ECH  <- TAB_ECH [,c("Class_Binaire","Profil","VITESSE","EMPLACEMENT","AGE_bis","TYPE_RAYON_COURBE","TRAIN","UIC", "TR_ANNEE_POSE")]
+TAB_TEST <- TAB_TEST[,c("Class_Binaire","Profil","VITESSE","EMPLACEMENT","AGE_bis","TYPE_RAYON_COURBE","TRAIN","UIC", "TR_ANNEE_POSE")]
+```
+
+#### Factorisation
+```{r Factorisation, echo=TRUE, warning=FALSE}
+#TAB_ECH$Class_Binaire  <- as.factor(TAB_ECH$Class_Binaire)
+#TAB_ECH$VITESSE        <- as.factor(TAB_ECH$VITESSE)
+#TAB_ECH$AGE_bis        <- as.factor(TAB_ECH$AGE_bis)
+#TAB_ECH$TR_ANNEE_POSE  <- as.factor(TAB_ECH$TR_ANNEE_POSE)
+
+#TAB_TEST$Class_Binaire <- as.factor(TAB_TEST$Class_Binaire)
+#TAB_TEST$VITESSE       <- as.factor(TAB_TEST$VITESSE)
+#TAB_TEST$AGE_bis       <- as.factor(TAB_TEST$AGE_bis)
+#TAB_TEST$TR_ANNEE_POSE <- as.factor(TAB_TEST$TR_ANNEE_POSE)
+```
+
+## MODELISATION
+### 1^er^ modele avec le parametrage par defaut
+
+* **type** : 
+     + **C-classification** si on fait de la classification simple (defaut si la variable predite est de type factor)
+     + **eps-regression** si on fait de la régression (defaut si la variable predite est de type numerique).
+* **kernel** (Noyau a utiliser) : 
+     + **radial** : (radial basis de type exp(-gamma*|u-v|^2)), 
+     + **linear** : (u'*v), 
+     + **polynomial** : (gamma*u'*v + coef0)^degree, 
+     + **sigmoid** : tanh(gamma*u'*v + coef0).
+* **gamma** (facteur gamma (inutile pour kernel lineaire))
+* **cost** (constante de cout pour le la grangien), 1 par defaut
+
+
+```{r}
+doParallel::registerDoParallel(cluster)
+set.seed(1971)
+BIN_SVM_01 <- e1071::svm(Class_Binaire~. , 
+                 data = TAB_ECH, 
+                 type="C-classification",
+                 probability = TRUE,
+                 fitted = TRUE)
+
+
+PRED_BIN_SVM_01 <- predict(BIN_SVM_01, TAB_TEST)
+```
+
+#### Resultat
+```{r}
+BIN_SVM_01_Cost <- BIN_SVM_01$cost
+BIN_SVM_01_Degree <- BIN_SVM_01$degree
+BIN_SVM_01_Gamma <- BIN_SVM_01$gamma
+BIN_SVM_01_nSV <- BIN_SVM_01$nSV
+```
+* Cost : `r BIN_SVM_01_Cost`   
+* gamma : `r BIN_SVM_01_Gamma`  
+* Number of Support Vectors : `r BIN_SVM_01_nSV`  
+
+##### Matrice de confusion
+```{r}
+#Mconfusion <- print(table(PRED_BIN_SVM_01, TAB_TEST$Class_Binaire))
+Mconfusion <- table(PRED_BIN_SVM_01, TAB_TEST$Class_Binaire)
+Mconfusion
+Mconfusion <- addmargins(Mconfusion)
+perf <- (mean(PRED_BIN_SVM_01 == TAB_TEST$Class_Binaire))
+TFP <- (Mconfusion[2,1]/Mconfusion[3,1])*100
+TFN <- (Mconfusion[1,2]/Mconfusion[3,2])*100
+```
+* Taux de faux positifs : `r TFP`   
+* Taux de faux negatifs : `r TFN`     
+* Performance du modele : `r perf`     
+
+##### Courbe ROC
+```{r fig.width=8, fig.height=6}
+m = Epi::ROC(test = PRED_BIN_SVM_01,
+        stat = TAB_TEST$Class_Binaire,
+        data = TAB_ECH,
+        plot = "ROC",
+        MI = FALSE,
+        grid = FALSE)
+```
+### Amelioration
+```{r}
+#On ne peut pas paralleliser avec tune, on va essayer avec Caret
+
+# doParallel::registerDoParallel(cluster)
+# BIN_SVM_02 <- e1071::tune(method = svm,
+#                           Class_Binaire~.,
+#                           data = TAB_ECH, 
+#                           kernel="radial", 
+#                           ranges=list(cost=c(1, 10, 100), 
+#                                       gamma=c(1, 5, 10)))
+# 
+# summary(BIN_SVM_02)
+```
+
+
+```{r}
+TAB_ECH$Class_Binaire <- as.factor(TAB_ECH$Class_Binaire)
+levels(TAB_ECH$Class_Binaire) <- make.names(levels(factor(TAB_ECH$Class_Binaire)))
+
+
+
+set.seed(1971)
+ctrl <- caret::trainControl(method="repeatedcv",
+                     number = 10,
+                     repeats = 3,
+                     summaryFunction=twoClassSummary,
+                     classProbs=TRUE)
+
+# Grid search to fine tune SVM
+grid <- expand.grid(sigma = c(0.07, 0.08, 0.09),
+                    C = c(1.5, 2, 2.5)
+                    )
+
+#Train SVM
+  doParallel::registerDoParallel(cluster)
+BIN_SVM_02.tune <- caret::train(Class_Binaire~.,
+                  data = TAB_ECH,
+                  method = "svmRadial",
+                  metric="ROC",
+                  tuneGrid = grid,
+                  trControl=ctrl)
+
+BIN_SVM_02.tune$bestTune
+```
+
+```{r}
+set.seed(1971)
+doParallel::registerDoParallel(cluster)
+BIN_SVM_02 <- e1071::svm(Class_Binaire~. , 
+                 data = TAB_ECH, 
+                 type="C-classification",
+                 sigma = 0.09,
+                 cost = 1.5,
+                 probability = TRUE,
+                 fitted = TRUE)
+
+
+PRED_BIN_SVM_02 <- predict(BIN_SVM_02, TAB_TEST)
+
+BIN_SVM_02_Cost <- BIN_SVM_02$cost
+BIN_SVM_02_Degree <- BIN_SVM_02$degree
+BIN_SVM_02_Gamma <- BIN_SVM_02$gamma
+BIN_SVM_02_nSV <- BIN_SVM_02$nSV
+```
+* Cost : `r BIN_SVM_02_Cost`   
+* gamma : `r BIN_SVM_02_Gamma`  
+* Number of Support Vectors : `r BIN_SVM_02_nSV`  
+
+```{r}
+Mconfusion <- table(PRED_BIN_SVM_02, TAB_TEST$Class_Binaire)
+Mconfusion
+Mconfusion <- addmargins(Mconfusion)
+perf_02 <- (mean(PRED_BIN_SVM_02 == TAB_TEST$Class_Binaire))
+TFP_02 <- (Mconfusion[2,1]/Mconfusion[3,1])*100
+TFN_02 <- (Mconfusion[1,2]/Mconfusion[3,2])*100
+```
+* Taux de faux positifs : `r TFP_02`   
+* Taux de faux negatifs : `r TFN_02`     
+* Performance du modele : `r perf_02`  
+
+
+```{r}
+m = Epi::ROC(test = PRED_BIN_SVM_02,
+        stat = TAB_TEST$Class_Binaire,
+        data = TAB_ECH,
+        plot = "ROC",
+        MI = FALSE,
+        grid = FALSE)
+```
