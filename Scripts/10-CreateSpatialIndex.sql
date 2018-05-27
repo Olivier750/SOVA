@@ -1,0 +1,1 @@
+SELECT CreateSpatialIndex('lignes','geospatiale')

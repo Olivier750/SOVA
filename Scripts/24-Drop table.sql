@@ -1,0 +1,1 @@
+DROP TABLE lignes_tmp;
