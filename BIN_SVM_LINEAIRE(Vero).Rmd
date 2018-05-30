@@ -1,0 +1,270 @@
+---
+title: 'REGRESSION  SVM' 
+subtitle: 'FISSURATION AVEC RISQUE DE RUPTURE vs NON RUPTURE' 
+output:
+  rmarkdown::html_document:
+    theme: cerulean
+    number_sections: no
+    toc: no
+    toc_depth: 5
+    toc_float: true
+---
+
+## 1. Installation des packages et creation de la base de design et du vecteur réponse :
+
+### Packages :
+```{r}
+# install.packages("e1071")
+library(e1071)
+
+# install.packages("pROC")
+library(pROC) # Pour le calcul de l'AUC
+
+#install.packages("Epi")
+library(Epi) # Pour la courbe ROC
+```
+
+### Base de design et vecteur réponse :
+```{r}
+BASE_TRAVAIL <- read.table("BASE_TRAVAIL.csv",sep=";",header=T)
+BASE_Bin_TRAIN <- read.table("BASE_Bin_TRAIN.csv",sep=";",header=T)
+BASE_Bin_TEST  <- read.table("BASE_Bin_TEST.csv",sep=";",header=T)
+
+# Transformation en facteur de Y :
+BASE_TRAVAIL$Class_Binaire=as.factor(BASE_TRAVAIL$Class_Binaire)
+BASE_Bin_TRAIN$Class_Binaire=as.factor(BASE_Bin_TRAIN$Class_Binaire)
+BASE_Bin_TEST$Class_Binaire=as.factor(BASE_Bin_TEST$Class_Binaire)
+
+# Base de design : 12 variables
+X <- model.matrix(Class_Binaire~ANNEE_POSE+AGE+VITESSE +UIC +TRAIN +Profil+TYPE_RAYON_COURBE, BASE_TRAVAIL)[,-1] 
+Y <- BASE_TRAVAIL$Class_Binaire
+# head(X,3)
+# head(Y,3)
+
+# Base de design :
+X_TRAIN <- model.matrix(Class_Binaire~ANNEE_POSE+AGE+VITESSE +UIC +TRAIN +Profil +TYPE_RAYON_COURBE, BASE_Bin_TRAIN)[,-1] 
+Y_TRAIN <- BASE_Bin_TRAIN$Class_Binaire
+# head(X_TRAIN,3)
+# head(Y_TRAIN,3)
+
+# Base de design :
+X_TEST <- model.matrix(Class_Binaire~ANNEE_POSE+AGE+VITESSE +UIC +TRAIN +Profil +TYPE_RAYON_COURBE, BASE_Bin_TEST)[,-1] 
+Y_TEST <- BASE_Bin_TEST$Class_Binaire
+# head(X_TEST,3)
+# head(Y_TEST,3)
+```
+
+## 2. Cross Validation sur base TRAIN pour choisir la constante de tolerance qui minimise le risque estimé :
+
+### Petite verif pour commencer (estimer le tps que prend un modele) :
+```{r}
+BIN_SVM_LINEAIRE.fit<-svm (X_TRAIN, Y_TRAIN, kernel="linear", cost=1, probability=T, type="C-classification")
+BIN_SVM_LINEAIRE.fit
+
+head(BIN_SVM_LINEAIRE.fit$fitted)
+BIN_SVM_LINEAIRE.fit$gamma # donne le gamma
+BIN_SVM_LINEAIRE.fit$nSV # donne le nombre de vecteurs support par valeur possible pour le label
+# BIN_SVM_LINEAIRE.fit$index # donne les indices des vecteurs supports
+# BIN_SVM_LINEAIRE.fit$SV # donne la matrice des vecteurs supports
+```
+
+### Cross validation (3-fold pour plus de rapidité), sur une grille large cost=10^(-3:2) :
+
+```{r}
+# On le fait sur cross valid 3-fold pour plus de rapidité :
+
+
+# Avec tune.svm + parallelisation
+library(doParallel)
+library(parallel)
+detectCores()
+cl <- makeCluster(detectCores()-1) # creation du cluster
+registerDoParallel(cl) # enregistrement du cluster
+
+ptm <- proc.time()
+    set.seed(1)
+    BIN_SVM_LINEAIRE.fit.cv <- tune.svm (X_TRAIN, Y_TRAIN, data=BASE_Bin_TRAIN, kernel="linear", cost=10^(-3:3),  tunecontrol=tune.control(sampling="cross",cross = 3) )
+proc.time() - ptm # 228 secondes -> 4 mn
+  
+stopCluster(cl)  
+  
+  
+print(BIN_SVM_LINEAIRE.fit.cv)
+
+# Donne les estimateurs du risque pour toutes les constantes de tolerance testees 
+plot(BIN_SVM_LINEAIRE.fit.cv) # en graphe
+BIN_SVM_LINEAIRE.fit.cv$performances # en valeur
+# IMPORTANT : verifier qu'on a bien une tendance decroissante suivie d'une tendance croissante.
+
+cost.cv <- BIN_SVM_LINEAIRE.fit.cv$best.parameters$cost # C=100 => On recommence sur grille plus petite
+```
+### On affine la grille :
+```{r}
+# Avec tune.svm + parallelisation
+library(doParallel)
+library(parallel)
+detectCores()
+cl <- makeCluster(3) # creation du cluster
+registerDoParallel(cl) # enregistrement du cluster
+
+  ptm <- proc.time()
+    set.seed(1)
+    BIN_SVM_LINEAIRE.fit.cv2 <- tune.svm (X_TRAIN, Y_TRAIN, data=BASE_Bin_TRAIN, kernel="linear", cost=seq(50,150,by=10),  tunecontrol=tune.control(sampling="cross",cross = 3) )
+  proc.time() - ptm # 55 secondes 
+  
+stopCluster(cl)    
+  
+  
+print(BIN_SVM_LINEAIRE.fit.cv2)
+
+# Donne les estimateurs du risque pour toutes les constantes de tolerance testees 
+plot(BIN_SVM_LINEAIRE.fit.cv2) # en graphe
+BIN_SVM_LINEAIRE.fit.cv2$performances # en valeur
+# IMPORTANT : verifier qu'on a bien une tendance decroissante suivie d'une tendance croissante.
+
+cost.cv <- BIN_SVM_LINEAIRE.fit.cv2$best.parameters$cost 
+# On recommence de 0 à 1
+```
+
+### Le modéle avec la meilleure constante de tolerance :
+```{r}
+BIN_SVM_LINEAIRE.fit.best <- BIN_SVM_LINEAIRE.fit.cv2$best.model
+summary(BIN_SVM_LINEAIRE.fit.best) # 5521 vecteurs support
+```
+
+## 3. Etude du modele avec C=140 sur TRAIN pour choisir le seuil de probabilité par cross validation
+
+### Création des 10 folds sur TRAIN avec repartition homogéne des modalités 0 et 1
+```{r}
+# separation des reponses :
+X<-BASE_Bin_TRAIN ;rownames(X)<-NULL
+X_0 <-X[which(X$Class_Binaire==0),] ;rownames(X_0)<-NULL
+X_1 <-X[which(X$Class_Binaire==1),] ;rownames(X_1)<-NULL
+
+# creation fonction qui recupere 1/10 de la base aleatoirement : 
+CROSS<-function(X){
+  set.seed(1444)
+  ID<-sample(1:nrow(X),nrow(X)) # rangement des lignes dans le desordre
+  a<- seq(1,nrow(X),round((nrow(X)/10))+1) # selection de 1 ligne sur 10
+  X$fold<-10
+  for (i in 1:9){
+    X$fold[ID[a[i]:(a[i+1]-1)]]<-i
+  }
+  return(X)
+}
+
+# creation de la base de travail :
+X_0<-CROSS(X_0)
+X_1<-CROSS(X_1)
+X_fin<-rbind(X_0,X_1)
+X_fin<-X_fin[order(X_fin$fold),]
+rownames(X_fin)<-NULL
+# table (X_fin$fold) 
+```
+
+### Application du modéle :
+```{r}
+# initialisation :
+performances <- c()
+Faux_Positif <- c()
+Faux_negatif <- c()
+proba_optim  <- c()
+
+  # les 10 fold sur train :
+  for (i in 1:10){
+    
+    # Train qui contient 9 blocs en base de design et test qui contient 1 bloc
+    training_set <- X_fin[X_fin$fold != i,]
+    training_set_X <- model.matrix(Class_Binaire~ANNEE_POSE+AGE+VITESSE +UIC +TRAIN +Profil +TYPE_RAYON_COURBE, training_set)[,-1] 
+    training_set_Y <- training_set$Class_Binaire
+    
+    testing_set <-  X_fin[X_fin$fold == i,]
+    testing_set_X <- model.matrix(Class_Binaire~ANNEE_POSE+AGE+VITESSE +UIC +TRAIN +Profil +TYPE_RAYON_COURBE, testing_set)[,-1] 
+    testing_set_Y <- testing_set$Class_Binaire
+   
+      # modele 
+    BIN_SVM_LINEAIRE.fit.cv <- svm (training_set_X, training_set_Y, kernel="linear", cost=cost.cv , probability=T,type="C-classification")
+    BIN_SVM_LINEAIRE.pred.cv <- predict(BIN_SVM_LINEAIRE.fit.cv, newdata=testing_set_X, decision.values = TRUE,  probability=TRUE)
+   
+    BIN_SVM_LINEAIRE.prob.cv <- attr(BIN_SVM_LINEAIRE.pred.cv,"probabilities") 
+    prob <- BIN_SVM_LINEAIRE.prob.cv[,2]
+    roc<-ROC(test =  prob, stat = testing_set_Y, data = testing_set_X, plot = "ROC", MI=F)
+    
+    # prob_80sens <- roc$res$BIN_LOG2.probs[which.min (roc$res$sens>=0.8) ]
+    prob_optim  <- roc$res$prob[which.max (roc$res$sens + roc$res$spec) ]
+    
+    BIN_SVM_LINEAIRE.rep.cv <- rep("0", length(prob))
+    BIN_SVM_LINEAIRE.rep.cv[prob > prob_optim] = "1"
+    
+    # matrice de confusion
+    K <- addmargins(table(BIN_SVM_LINEAIRE.rep.cv, testing_set_Y))
+    # calcul du taux de bien classé, et des erreurs FP et FN
+    CLASSE_OK<-(mean(BIN_SVM_LINEAIRE.rep.cv == testing_set_Y))
+    TFP <- K[2,1]/K[3,1]
+    TFN <- K[1,2]/K[3,2]
+    # Ajouter à la liste ->> à la fin, on les moyenne
+    performances[i] <- CLASSE_OK
+    Faux_Positif[i] <- TFP
+    Faux_negatif[i] <- TFN
+    proba_optim[i]  <- prob_optim
+    
+  }
+    performances
+    Faux_Positif
+    Faux_negatif
+    proba_optim
+  # Moyenne des erreurs :
+  print(c('Performance' = mean(performances)))
+  print(c('TFP' = mean(Faux_Positif)))
+  print(c('TFN' = mean(Faux_negatif)))
+  print(c('Proba Optimale' = mean(proba_optim))) 
+```
+Seuil optimal choisi : 0.3408159
+
+
+## 4. Application du modele SVM lineaire retenu sur la base TEST :
+
+### On refait tourner le modele surle TRAIN avec la meilleure constante de tolerance :
+```{r}
+BIN_SVM_LINEAIRE.fit<-svm (X_TRAIN, Y_TRAIN, kernel="linear", cost=cost.cv, probability=T, type="C-classification" )
+```
+
+### Application sur le TEST avec la proba optimale :
+
+```{r}
+BIN_SVM_LINEAIRE.pred <- predict(BIN_SVM_LINEAIRE.fit, newdata=X_TEST , decision.values = TRUE, probability=TRUE)
+
+BIN_SVM_LINEAIRE.prob <- attr(BIN_SVM_LINEAIRE.pred,"probabilities") 
+prob <- BIN_SVM_LINEAIRE.prob[,2]
+
+# Evaluation de l'erreur de prediction avec proba optimale :  
+BIN_SVM_LINEAIRE.pred_fin  <- rep(0, length(prob))
+    BIN_SVM_LINEAIRE.pred_fin[prob > mean(proba_optim)] = 1
+    
+# Matrice de confusion associé au modèle
+confusion <- addmargins(table(BIN_SVM_LINEAIRE.pred_fin, Y_TEST))  
+
+# Calcul de la moyenne des bien predits sur le train :  
+perf <- (mean(BIN_SVM_LINEAIRE.pred_fin == Y_TEST) )
+# Calcul du taux de Faux positifs (TFP) : 
+TFP <- confusion[2,1]/confusion[3,1]
+# Calcul du taux de Faux negatifs (TFN) : 
+TFN <- confusion[1,2]/confusion[3,2]
+
+# Affichage :
+  confusion
+  print(c('Performance' = perf))
+  print(c('TFP' = TFP))
+  print(c('TFN' = TFN))   
+```
+
+### Courbe ROC sur le TEST :
+```{r}
+ROC(test = prob,
+	stat = Y_TEST,
+	data = X_TEST, plot = "ROC", MI=F)
+```
+
+
+
+
