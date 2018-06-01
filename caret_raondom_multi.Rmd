@@ -1,0 +1,214 @@
+---
+title: "Random Forest Multi"
+output:
+ rmarkdown::html_document:
+    theme: cerulean
+    number_sections: no
+    toc: no
+    toc_depth: 5
+    toc_float: true
+
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+Commençons par le téléchargement des packages et charger les libraries nécessaires pour l'analyse :
+
+```{r }
+source("E:/Others/Formation Data Science/Projet/Nouveau dossier/Construction_folds.R")
+library(randomForest)
+library(caret)
+library(doParallel)
+library(nnet)
+```
+
+Chargeons les tables de donées TRAIN et TEST. 
+```{r }
+
+## Les 2 bases de données à utiliser :
+## BASE_Multi_train et BASE_Multi_test
+
+BASE_Multi_train<-read.csv(file = "E:/Others/Formation Data Science/Projet/Nouveau dossier/Datasources/BASE_Multi_train.csv",header=TRUE,sep=";")
+BASE_Multi_test<-read.csv("E:/Others/Formation Data Science/Projet/Nouveau dossier/Datasources/BASE_Multi_test.csv",header=TRUE,sep=";")
+
+# choisir les covariables 
+#"Profil","VITESSE","TYPE_CLASSEMENT","AGE",
+#"TYPE_RAYON_COURBE", "TRAIN", "UIC","ANNEE_POSE"
+names(BASE_Multi_train)
+Data_TRAIN<-BASE_Multi_train[,c(6,7,8,9,13,14,15,17,5)]
+str(Data_TRAIN)
+
+# Faire la meme chose pour la base test
+Data_TEST<-BASE_Multi_test[,c(6,7,8,9,13,14,15,17,5)]
+
+
+# on scale les données
+
+maxs <- apply(Data_TRAIN[,c("AGE","VITESSE","ANNEE_POSE")], 2, max) 
+mins <- apply(Data_TRAIN[,c("AGE","VITESSE","ANNEE_POSE")], 2, min)
+Data_TRAIN <- cbind(Data_TRAIN[,c("Profil","TYPE_CLASSEMENT","TYPE_RAYON_COURBE", "TRAIN", "UIC")],as.data.frame(scale(Data_TRAIN[,c("AGE","VITESSE","ANNEE_POSE")], center = mins, scale = maxs - mins)))
+rownames(Data_TRAIN)<-NULL
+
+# Faire la meme chose pour la base test
+
+maxs <- apply(Data_TEST[,c("AGE","VITESSE","ANNEE_POSE")], 2, max) 
+mins <- apply(Data_TEST[,c("AGE","VITESSE","ANNEE_POSE")], 2, min)
+Data_TEST <- cbind(Data_TEST[,c("Profil","TYPE_CLASSEMENT","TYPE_RAYON_COURBE", "TRAIN", "UIC")],as.data.frame(scale(Data_TEST[,c("AGE","VITESSE","ANNEE_POSE")], center = mins, scale = maxs - mins)))
+rownames(Data_TEST)<-NULL
+
+```
+
+On decompose le jeux de données en 10 groups 
+```{r}
+Data_TRAIN1<-FOLDS_func(Data_TRAIN,1444)
+```
+
+ Testons le modèle et essayons de regler les paramètres, avec le package RandomForest et la cross-validation pour la variation des paramètres.
+```{r }
+#model_RF_Multi <-randomForest(TYPE_CLASSEMENT ~ ., data = Data_TEST,ntree #= 2000, mtry = 3, na.action = na.roughfix)
+#plot(model_RF_Multi$err.rate[, 1], type = "l", xlab = "nombre d'arbres", #ylab = "erreur OOB")
+
+#model_RF2_Multi <-randomForest(TYPE_CLASSEMENT ~ ., data = #trainNN_RF,ntree = 2000, mtry = 6, na.action = na.omit)
+TAB<-data.frame(matrix(0,0,3))
+  for (j in c(500,1000)){
+     MATRICE<-data.frame(matrix(0,5,3))
+    for (alpha in c(3:7)){
+  performances <- c()
+  for (fold in 1:10){
+    
+    # Creation de Train
+    training_set <- Data_TRAIN1[Data_TRAIN1$fold != fold,]
+    
+    # Creation de Test
+    testing_set <- Data_TRAIN1[Data_TRAIN1$fold == fold,]
+    
+    ## Train model
+    model <-randomForest(TYPE_CLASSEMENT ~ ., data = training_set[,-ncol(training_set)],ntree = j, mtry = alpha, na.action = na.omit, prob=TRUE)   #na.action = na.roughfix
+     ## Test model
+    PRED<-cbind(data.frame(predict( model,newdata=testing_set[,-ncol(testing_set)])),testing_set$TYPE_CLASSEMENT)
+    colnames(PRED)<-c("PRED","REEL")
+    
+    # Matrice de confusion
+    K<-confusionMatrix(PRED$PRED,PRED$REEL)$table
+    ERREUR_MOD<-(K[1,2]+K[1,2]+K[2,1]+K[2,3]+K[3,1]+K[3,2])/nrow(testing_set)
+    performances[fold] <- ERREUR_MOD}
+  
+  # La myenne des erreurs
+  c<-c('ERREUR' = mean(performances))
+  MATRICE[(alpha-2),1]<-j
+  MATRICE[(alpha-2),2]<-alpha
+  MATRICE[(alpha-2),3]<-c
+}
+TAB<-rbind(TAB,MATRICE)
+  }
+colnames(TAB)<-c("Trees","mtry","Erreur_Moyenne_KFOLS")
+
+```
+
+Il faut observer la où l'eerreur est minimale :
+```{r}
+print(TAB)
+plot(TAB[,2],TAB[,3],col=TAB[,1], xlab = "mtry",ylab="Erreur")
+legend("topright", legend = unique(TAB[,1]),lwd = 3,pch = 1, col = c("blue","grey""))
+```
+Essayons le random Forest avec caret
+
+```{r }
+mtryGrid <- expand.grid(mtry = 3:7)
+
+
+set.seed(1444)
+seeds <- vector(mode = "list", length = 21)
+for(i in 1:20) seeds[[i]] <- sample(1000,9)
+seeds[[21]] <- 1 # Pour le dernier model
+
+
+## Remplir les paramètres de la traincontrol
+
+
+Controle<-trainControl(method = "repeatedcv", 
+                       number = 10, # the number of folds
+                       repeats = 2,
+                       classProbs = TRUE, summaryFunction = multiClassSummary,
+                       seeds = seeds)#,index = IDX)
+
+
+
+library(doParallel)
+cl = makeCluster(3)
+registerDoParallel(cl)
+
+Controle<-trainControl(method = "repeatedcv", 
+                       number = 10, # the number of folds
+                       repeats = 2,
+                       classProbs = TRUE, summaryFunction = multiClassSummary,
+                       seeds = seeds)
+
+RF <- train(Data_TRAIN1[,-2], Data_TRAIN1$TYPE_CLASSEMENT,
+ method="rf",
+ ntree=500,
+ metric="Accuracy",
+ importance=TRUE,
+ linout = FALSE,
+ na.action=na.omit,
+ trControl=Controle,
+ tuneGrid = mtryGrid,
+ allowParallel=TRUE)
+
+
+
+
+stopCluster(cl)
+remove(cl)
+registerDoSEQ()
+
+# Examine results
+print(RF$finalModel)
+
+```
+ Regardons la meilleur valeur de la metric.
+```{r }
+plot(RF)#, metric = "ROC")
+RF
+```
+Prevision
+```{r }
+
+Mod_RF_Fin<-randomForest(TYPE_CLASSEMENT ~ ., data =Data_TRAIN,ntree = 500, mtry = 3, na.action = na.omit)
+
+RF_PRED <- predict( Mod_RF_Fin , Data_TEST[,-2],type = "prob")
+#results <- data.frame(results, caret.preds = round(caret.preds, 2))
+
+```
+
+```{r }
+## faisons varier le seuil k et regardons le taux d'erreur
+P<-seq(0,1,0.05)
+ERREUR<-c()
+for (i in 1:length(P)){
+Confusion<-(RF_PRED>P[i])+0
+X<-apply(Confusion,1,which.max)
+X[which(X==1)]<-"O"
+X[which(X==2)]<-"X1"
+X[which(X==3)]<-"X2"
+X<-as.factor(as.matrix(as.factor(X)))
+Data_TEST$TYPE_CLASSEMENT<-as.factor(Data_TEST$TYPE_CLASSEMENT)
+levels(X)<-levels(Data_TEST$TYPE_CLASSEMENT)
+MAT<-confusionMatrix(X, Data_TEST$TYPE_CLASSEMENT)$table
+ERR<-(MAT[1,2]+MAT[1,3]+MAT[2,1]+MAT[2,3]+MAT[3,1]+MAT[3,2])/nrow(Data_TEST)
+ERREUR=c(ERREUR,ERR)
+}
+ERREUR
+plot(P,ERREUR,type='p',col="blue")
+cbind(P,ERREUR)
+
+
+```
+
+```{r }
+
+
+```
+
