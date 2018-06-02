@@ -1,0 +1,224 @@
+---
+title: "Statistique Descriptive"
+output:
+  html_notebook:
+    theme: cerulean
+  html_document:
+    df_print: paged
+number_sections: no
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+---
+subtitle: "Description des données "
+---
+Le jeu de données dont nous disposons est une base de données SNCF, décrivant les défauts présents sur la voie ferrée.
+Ces données sont présentées en fichiers csv, sur un historique de 17 ans sur une région du nord de l'Ile de France. 
+
+Chaque ligne du fichier contient un défaut unique observé et enregistré, ainsi que les caractéristiques techniques des rails, telles que :
+
+**Ligne** : Numéro de la ligne ferrée
+
+**NOMVOIE** :Nom de la voie
+
+**ID_DEFAUT** : Identifiant unique du défaut
+
+**PK_DEFAUT**  : Point kilométrique du défaut
+
+**PROFIL_RAIL** : Caractéristiques techniques des rails qui se   regroupent en 5 catégories :
+
+  * Autre
+  * 46-E2
+  * 50-E6
+  * 55-E1
+  * 60-E1
+
+**ANNEE_POSE** :  Année de pose du rail
+       
+**VITESSE** : Vitesse maximale autorisée des circulations
+
+**GROUPE_UIC** : Fréquence de passage des trains qui se présente en trois groupes :
+
+  * Forte densité de circulation
+  * Densité moyenne de circulation
+  * Faible densité de circulation
+
+**RAYON_COURBE** : Indique si la voie est en ligne droite ou circulaire. 
+
+
+**TYPE_EMPLACEMENT** : Indique l'emplacement de la voie, si elle est dans un tunnel ou à l'éxtérieur. 
+    
+
+**Annee_Decouverte** : Année de découverte du défaut.
+       
+       
+**Age du rail** : âge du rail au moment où on observe le défaut.
+
+**TYPE_CLASSEMENT (variable a expliquer)** : Elle décrit le type de défaut detecté sur la voie et se présente en cinq modalités.
+
+Ces modalités décrivent le niveau de fissuration de la voie :
+
+ * E : N'évolue pas en fissuration, défauts de surface du rail ou d'usure ondulatoire (déforme le rail => gène et abîme le train)
+ * NR : Provoque des fissurations mais le rail peut rester en voie, avec ou sans surveillance, Gravité 1
+ * O : Provoque des fissurations mais le rail peut rester en voie, avec ou sans surveillance, Gravité 2
+ * X1 : Provoque des fissurations et demande des mesures de sécurité, Risque de rupture faible
+ * X2 : Provoque des fissurations et demande des mesures de sécurité, Risque de rupture important
+ * S : Provoque des fissurations et demande des mesures de sécurité, Risque de rupture imminent 
+     
+Les données sous la forme du tableau ci-dessous : 
+
+Les données initiales sont dans TAB
+
+
+```{r}
+head(TAB)
+summary(TAB)
+```
+
+ Les variables **Ligne**,**NOMVOIE** ,**ID_DEFAUT** et **PK_DEFAUT** décrivent la localisation des voies et ont servi à la cartographie. Elles seront donc écartées de l'étude qui sera faite uniquement avec **PROFIL_RAIL** (qualitative à 5 modalités), 
+**ANNEE_POSE** (quantitative),
+**VITESSE** (quantitative),
+**GROUPE_UIC** (qualitative à 3 modalités),
+**RAYON_COURBE** (qualitative à 2 modalités),
+**TYPE_EMPLACEMENT** (qualitative à 2 modalités),
+**Age du rail** (quantitative).
+
+
+
+Observation graphique des variables :
+
+```{r}
+barplot(table(TAB$TYPE_CLASSEMENT),col = "lightblue", main="Répartition des défauts en focntion de leur classe")
+
+
+```
+
+L'idée est donc de mener l'étude uniquement sur les trois classes significatifs : 
+O : pas grave
+X1 : grave
+X2 : Très grave
+```{r}
+barplot(table(TAB$AGE),col = "lightblue", main="Répartition des défauts en focntion de leur Age")
+boxplot(TAB$AGE,col = "lightblue", main=" Boxplot des Ages")
+
+```
+
+
+
+```{r}
+barplot(table(TAB$ANNEE_POSE),col = "lightblue", main="Répartition des défauts en focntion des années de pose")
+boxplot(TAB$ANNEE_POSE,col = "lightblue", main=" Boxplot des années de pose")
+
+```
+
+
+
+
+```{r}
+barplot(table(TAB$VITESSE),col = "lightblue", main="Répartition des vitesses")
+
+
+```
+
+
+
+```{r}
+par(mfrow=c(2,2))
+barplot(table(TAB$Profil),col = "lightblue", main="Défaut/Type de rail")
+barplot(table(TAB$TYPE_RAYON_COURBE),col = "lightblue", main="Défaut/Disposition de la voie ")
+barplot(table(TAB$GROUPE_UIC),col = "lightblue", main="Défaut/Densité de circulation")
+barplot(table(TAB$EMPLACEMENT),col = "lightblue", main="Défaut/Emplacement")
+
+```
+
+Cet aperçu de données nous a permis de faire des choix sur les données telle que :
+
+- Suppréssion de la valeur abbérante de la variable "Age" qui est égale à 1805. La présence des valeurs négatives et manquantes s'explique par de mauvaises saisie.L'idée donc était de re-croiser ces données avec d'autres bases de données (patrimoine notamment) afin de pouvoir compléter ces données. C'est vrai aussi pour la variable année de pose
+
+- Enlever la variable emplacement de l'étude vu la peu de significativité qu'elle présente.
+
+- Pour la densité de circulation, le groupement de certaines modalités dans un meme groupe est utile afin de construie que trois groupes : 
+
+* Forte densité
+* Moyenne densité
+* Faible densité
+
+Les modifications apportées comme mentionné ci-dessus se resulte dans le tablea de données TAB_bis.
+Il faut noter que lors du croisement avec d'autres base, la detection d'une variable importante qui pourra apporter une interprétation aux données était ajoutée. Cette variable est Train, qui permet d'informer si le train est un TGV, un Transilien ou autre (fret,...).
+
+```{r}
+head(TAB_bis)
+summary(TAB_bis)
+
+```
+
+Meme avec le croisement fait afin d'avoir plus d'informations et moins de valeurs manquantes, il reste encore quelques observation manquantes.
+L'idée est de faire une ACP et une AFC afin de visualiser le comportement de ces observations.
+
+
+
+
+```{r}
+t<-TAB_bis[,c(6,8,12,13,14,15,16,17)]
+MOD_mca<-MCA(t,quali.sup = 2)
+#MOD_mca3<-MCA(t[complete.cases(t), ], ncp = 5, graph = FALSE)
+plotellipses(MOD_mca)
+#plotellipses(MOD_mca3)
+
+```
+Ce graphe montre l'explication de l'ensemble de nos données sur leur deux premières composantes principales (done l'explication n'est pas importante).
+
+
+```{r}
+
+eig.val <- MOD_mca$eig
+barplot(eig.val[, 2], 
+        names.arg = 1:nrow(eig.val), 
+        main = "Variances Explained by Dimensions (%)",
+        xlab = "Principal Dimensions",
+        ylab = "Percentage of variances",
+        col ="steelblue")
+# Add connected line segments to the plot
+lines(x = 1:nrow(eig.val), eig.val[, 2], 
+      type = "b", pch = 19, col = "red")
+```
+
+Focalisons nous sur les variables ayants des valeurs manquantes: Age,Train Année_pose et Profil.
+
+```{r}
+plotellipses(MOD_mca,keepvar = 1)
+plotellipses(MOD_mca,keepvar = 1,invisible="ind")
+head(MOD_mca$var$coord)
+```
+
+
+D'après ce graphique, et les résultats des coordonnées de chaque modalité aux composantes, nous constatons que la modalité NA s'approche de la modalité "50_E6" sur quasiment tous les axes.
+Nous ferons dans la suite de l'analyse l'approximation de remplacer les valeurs manquantes par cette valeur.
+
+Nous pourrons pas faire la meme chose, pour les autres variables suite à une répartition homogène de ces modalités manquantes par rapport aux autres modalité. 
+La décision prise était de les supprimer comme elles sont très peu (une centaine sur un total de 11767 oservation).
+
+
+```{r}
+TAB_bis$Profil[is.na(TAB_bis$Profil)]<-"50-E6"
+TAB_bis$Profil<-factor(TAB_bis$Profil)
+
+## donc on l'a supprime afin de ne pas l'affecter à une valeur fausse : 26 NA
+TAB_bis<-TAB_bis[-which(is.na(TAB_bis$TRAIN)),]
+rownames(TAB_bis)<-NULL
+TAB_bis$TRAIN<-factor(TAB_bis$TRAIN)
+```
+Après le netoyage des données et la comprehesion des relations etre ces variables, on passe à la modélisation.
+Déclarons la BASE_TRAVAIL est la base netoyée et préprée pour l'étude.
+
+```{r}
+BASE_TRAVAIL<-TAB_bis
+```
+
+
+```{r}
+
+```
