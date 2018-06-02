@@ -1,0 +1,173 @@
+---
+title: "Neural Network for Binomial variable"
+output:
+  html_notebook:
+    theme: cerulean
+  html_document:
+    df_print: paged
+number_sections: no
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+Commençons par l'installaion des libraries necessaire pour l'analyser, et chargeons les données par la suite.
+
+```{r }
+setwd("E:/Others/Formation Data Science/Projet/Nouveau dossier")
+library(caret)
+library(doParallel)
+## Les 2 bases de données à utiliser :
+## BASE_Bin_train et BASE_Bin_test
+
+BASE_Bin_train<-read.csv(file = "E:/Others/Formation Data Science/Projet/Nouveau dossier/Datasources/BASE_Bin_train.csv",header=TRUE,sep=";")
+BASE_Bin_test<-read.csv("E:/Others/Formation Data Science/Projet/Nouveau dossier/Datasources/BASE_Bin_test.csv",header=TRUE,sep=";")
+
+# choisir les covariables 
+#"Profil","VITESSE","Class_Binaire","AGE",
+#"TYPE_RAYON_COURBE", "TRAIN", "UIC","ANNEE_POSE"
+names(BASE_Bin_train)
+Data_TRAIN_Bin<-BASE_Bin_train[,c(6,16,8,9,13,14,15,17,5)]
+str(Data_TRAIN_Bin)
+
+#changeons la valeur de la modalité 
+Data_TRAIN_Bin$Class_Binaire[which(Data_TRAIN_Bin$Class_Binaire==1)]<-"X1"
+Data_TRAIN_Bin$Class_Binaire[which(Data_TRAIN_Bin$Class_Binaire==0)]<-"X0"
+Data_TRAIN_Bin$Class_Binaire<-as.factor(Data_TRAIN_Bin$Class_Binaire)
+
+# Faire la meme chose pour la base test
+Data_TEST_Bin<-BASE_Bin_test[,c(6,16,8,9,13,14,15,17,5)]
+#changeons la valeur de la modalité 
+Data_TEST_Bin$Class_Binaire[which(Data_TEST_Bin$Class_Binaire==1)]<-"X1"
+Data_TEST_Bin$Class_Binaire[which(Data_TEST_Bin$Class_Binaire==0)]<-"X0"
+Data_TEST_Bin$Class_Binaire<-as.factor(Data_TEST_Bin$Class_Binaire)
+
+
+# on scale les données
+
+maxs <- apply(Data_TRAIN_Bin[,c("AGE","VITESSE","ANNEE_POSE")], 2, max) 
+mins <- apply(Data_TRAIN_Bin[,c("AGE","VITESSE","ANNEE_POSE")], 2, min)
+Data_TRAIN_Bin <- cbind(Data_TRAIN_Bin[,c("Profil","Class_Binaire","TYPE_RAYON_COURBE", "TRAIN", "UIC")],as.data.frame(scale(Data_TRAIN_Bin[,c("AGE","VITESSE","ANNEE_POSE")], center = mins, scale = maxs - mins)))
+rownames(Data_TRAIN_Bin)<-NULL
+
+# Faire la meme chose pour la base test
+
+maxs <- apply(Data_TEST_Bin[,c("AGE","VITESSE","ANNEE_POSE")], 2, max) 
+mins <- apply(Data_TEST_Bin[,c("AGE","VITESSE","ANNEE_POSE")], 2, min)
+Data_TEST_Bin <- cbind(Data_TEST_Bin[,c("Profil","Class_Binaire","TYPE_RAYON_COURBE", "TRAIN", "UIC")],as.data.frame(scale(Data_TEST_Bin[,c("AGE","VITESSE","ANNEE_POSE")], center = mins, scale = maxs - mins)))
+rownames(Data_TEST_Bin)<-NULL
+
+
+```
+
+ 
+Les données sont propres pour l'utilisation. Passons à la mdélisation avec la fonction train de caret. Cette fonction depend de beaucoup de paramètres : 
+
+```{r}
+# Grille des paramètres
+NN.Grid_Bin <- expand.grid(.size=c(10,15,20), .decay=c(0.05,0.1,0.5))
+
+# comme on va faire un 10-fold repetée 2 fois 
+## on choisi les seeds pour les itérations 
+
+set.seed(1444)
+seeds <- vector(mode = "list", length = 21)
+for(i in 1:20) seeds[[i]] <- sample(1000,9)
+seeds[[21]] <- 1 # Pour le dernier model
+ 
+## Remplir les paramètres de la traincontrol
+
+
+Controle_Bin<-trainControl(method = "repeatedcv", 
+                       number = 10, # the number of folds
+                       repeats = 2,
+                       classProbs = TRUE, summaryFunction = twoClassSummary,
+                       seeds = seeds)
+
+
+cl = makeCluster(3)
+registerDoParallel(cl)
+
+#Neural Model
+MOD_NN_Bin<- train(Class_Binaire ~ .,
+                  data=Data_TRAIN_Bin,
+                  method='nnet',
+                  maxit = 1000,
+                  linout = FALSE,
+                  trControl = Controle_Bin,
+                  tuneGrid = NN.Grid_Bin,
+                  metric = "ROC",
+                  allowParallel = TRUE)
+
+stopCluster(cl)
+remove(cl)
+registerDoSEQ()
+
+MOD_NN_Bin
+
+
+```
+
+La metric choisie est le taux de ROC qui atteint 77%.
+
+Le graphique donne : 
+```{r fig.height=7, fig.width=10}
+plot(MOD_NN_Bin, metric = "ROC")
+```
+
+
+Passons maintenant à la prévision
+
+
+```{r}
+
+NN_Predictions_Bin <-predict(MOD_NN_Bin, Data_TEST_Bin,type = "prob")
+
+## faisons varier le seuil k et regardons le taux d'erreur
+ P<-seq(0,1,0.05)
+FN_Bin<-c()
+FP_Bin<-c()
+ERREUR_Bin<-c()
+for (i in 1:length(P)){
+  Confusion<-(NN_Predictions_Bin >P[i])+0
+  X<-apply(Confusion,1,which.max)
+  X[which(X==1)]<-"X0"
+  X[which(X==2)]<-"X1"
+  X<-as.factor(as.matrix(as.factor(X)))
+  Data_TEST_Bin$Class_Binaire<-as.factor(Data_TEST_Bin$Class_Binaire)
+  levels(X)<-levels(Data_TEST_Bin$Class_Binaire)
+  MAT<-confusionMatrix(X, Data_TEST_Bin$Class_Binaire)$table
+  FN<-(MAT[1,2])/(MAT[1,2]+MAT[2,2])
+  FN_Bin=c(FN_Bin,FN)
+  ERR<-(MAT[1,2]+MAT[2,1])/nrow(Data_TEST_Bin)
+  ERREUR_Bin=c(ERREUR_Bin,ERR)
+  FP<-(MAT[2,1])/(MAT[2,1]+MAT[1,1])
+  FP_Bin=c(FP_Bin,FP)
+}
+#plot(P,ER,type='p',col='blue')
+cbind(P,ERREUR_Bin,FN_Bin,FP_Bin)
+
+
+```
+
+
+La matrice de confusion :
+```{r}
+  Confusion<-(NN_Predictions_Bin >0.5)+0
+  X<-apply(Confusion,1,which.max)
+  X[which(X==1)]<-"X0"
+  X[which(X==2)]<-"X1"
+  X<-as.factor(as.matrix(as.factor(X)))
+  
+  MAT<-confusionMatrix(X, Data_TEST_Bin$Class_Binaire)$table
+  ERREUR_Bin<-(MAT[1,2]+MAT[2,1])/nrow(Data_TEST_Bin)
+  FP<-(MAT[2,1])/(MAT[2,1]+MAT[1,1])
+  FN<-(MAT[1,2])/(MAT[1,2]+MAT[2,2])
+  MAT
+c('Erreur ',ERREUR_Bin)
+c('Faux Negatifs' ,FN)
+c('Faux Postifs',FP)
+
+
+```
